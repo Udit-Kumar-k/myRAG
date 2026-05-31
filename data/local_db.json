@@ -1,0 +1,64 @@
+{
+  "user_test_user_123": {
+    "test_conv_abc": [
+      {
+        "question": "Who is the prime minister of France?",
+        "answer": "Insufficient evidence found in indexed G20 climate documents for this query. Consult official UNFCCC or government sources.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all",
+        "message_id": "1f1a6317-0e1d-4bd7-9612-385c2045bb99",
+        "timestamp": 1780207813.2980554
+      },
+      {
+        "question": "What is Germany's 2030 target?",
+        "answer": "Germany targets 65% reduction by 2030 under its Climate Protection Act.",
+        "sources": [
+          {
+            "document_name": "Climate Protection Act",
+            "geography_iso": "DEU",
+            "pub_year": 2021,
+            "namespace": "national_laws",
+            "source_url": "https://bundesregierung.de/law",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "national_laws",
+        "message_id": "cb0221ea-65cd-48f6-bbd2-888c99ba75e3",
+        "timestamp": 1780207813.335985
+      },
+      {
+        "question": "Who is the prime minister of France?",
+        "answer": "Insufficient evidence found in indexed G20 climate documents for this query. Consult official UNFCCC or government sources.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all",
+        "message_id": "6c7ff1bc-0d39-4e00-b92d-ba2a85c54280",
+        "timestamp": 1780207905.1596758
+      },
+      {
+        "question": "What is Germany's 2030 target?",
+        "answer": "Germany targets 65% reduction by 2030 under its Climate Protection Act.",
+        "sources": [
+          {
+            "document_name": "Climate Protection Act",
+            "geography_iso": "DEU",
+            "pub_year": 2021,
+            "namespace": "national_laws",
+            "source_url": "https://bundesregierung.de/law",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "national_laws",
+        "message_id": "5d9e86ba-3eff-43ab-be35-e3bfd6f75de1",
+        "timestamp": 1780207905.196985
+      }
+    ]
+  }
+}
