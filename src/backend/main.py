@@ -260,8 +260,8 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         database_url = os.environ.get("DATABASE_URL")
         history_msgs = []
         
-        # If DATABASE_URL is active and not mock-mode, load from SQLChatMessageHistory
-        if database_url and os.environ.get("MOCK_AUTH", "true").lower() != "true":
+        # If DATABASE_URL is active, load from SQLChatMessageHistory exclusively
+        if database_url:
             try:
                 chat_history = SQLChatMessageHistory(
                     session_id=f"{uid}:{req.conversation_id}",
@@ -270,10 +270,10 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
                 # Keep last 10 messages to avoid token bloating
                 history_msgs = chat_history.messages[-10:]
             except Exception as e:
-                print(f"SQLChatMessageHistory connection failed: {e}. Falling back.")
-                
-        # Local fallback if SQLChatMessageHistory failed or is offline
-        if not history_msgs:
+                print(f"SQLChatMessageHistory connection failed: {e}")
+                raise HTTPException(status_code=500, detail="Database history retrieval failed.")
+        else:
+            # Otherwise use local DB/JSON file exclusively
             try:
                 from langchain_core.messages import HumanMessage, AIMessage
                 history_records = db_manager.get_history(uid, req.conversation_id)
@@ -294,8 +294,8 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
             print(f"LLM chain execution error: {e}")
             raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
 
-        # 4. If SQLChatMessageHistory is active, save exchange to message_store table
-        if database_url and os.environ.get("MOCK_AUTH", "true").lower() != "true":
+        # 4. Save exchange to context history store
+        if database_url:
             try:
                 chat_history = SQLChatMessageHistory(
                     session_id=f"{uid}:{req.conversation_id}",
@@ -305,6 +305,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
                 chat_history.add_ai_message(answer)
             except Exception as e:
                 print(f"Failed to append to SQLChatMessageHistory: {e}")
+                raise HTTPException(status_code=500, detail="Database history save failed.")
 
     # 5. Save exchange to UI Database tables (messages & conversations)
     # User message

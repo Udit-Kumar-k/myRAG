@@ -192,17 +192,142 @@ EVAL_QUERIES = [
         "expected_namespace": "ndc_commitments",
         "ground_truth_keywords": ["Canada", "40-45%", "Australia", "43%", "2005"]
     },
-    # Programmatic shorthand filler for multi-country to ensure full 60 query suite
-    *[
-        {
-            "id": f"multi_{i:02d}",
-            "category": "multi_country",
-            "question": f"Compare climate policies and NDC commitments of G20 nations regarding carbon markets under Article 6.",
-            "geography_iso": "EU",
-            "expected_namespace": "ndc_commitments",
-            "ground_truth_keywords": ["Article 6", "emissions", "cooperation"]
-        } for i in range(4, 21)
-    ],
+    {
+        "id": "multi_04",
+        "category": "multi_country",
+        "question": "Compare the 2030 renewable energy target shares of Germany and France.",
+        "geography_iso": "DEU",
+        "expected_namespace": "national_laws",
+        "ground_truth_keywords": ["Germany", "France", "renewable", "target"]
+    },
+    {
+        "id": "multi_05",
+        "category": "multi_country",
+        "question": "How do the forest protection and deforestation targets of Brazil and Indonesia compare?",
+        "geography_iso": "BRA",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["Brazil", "Indonesia", "deforestation", "forest"]
+    },
+    {
+        "id": "multi_06",
+        "category": "multi_country",
+        "question": "Compare the coal phase-out commitments of the United Kingdom and Germany.",
+        "geography_iso": "GBR",
+        "expected_namespace": "national_laws",
+        "ground_truth_keywords": ["UK", "Germany", "coal", "phase-out"]
+    },
+    {
+        "id": "multi_07",
+        "category": "multi_country",
+        "question": "Which country has an earlier target for net-zero emissions between Japan and South Korea?",
+        "geography_iso": "JPN",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["Japan", "South Korea", "2050", "net-zero"]
+    },
+    {
+        "id": "multi_08",
+        "category": "multi_country",
+        "question": "Compare the 2030 emission intensity targets of India and China.",
+        "geography_iso": "IND",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["India", "China", "intensity", "2030"]
+    },
+    {
+        "id": "multi_09",
+        "category": "multi_country",
+        "question": "How do the absolute emission targets of Russia and Argentina for 2030 compare?",
+        "geography_iso": "RUS",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["Russia", "Argentina", "emissions", "2030"]
+    },
+    {
+        "id": "multi_10",
+        "category": "multi_country",
+        "question": "Compare the carbon pricing or carbon tax legislation in Canada and Mexico.",
+        "geography_iso": "CAN",
+        "expected_namespace": "national_laws",
+        "ground_truth_keywords": ["Canada", "Mexico", "carbon tax", "pricing"]
+    },
+    {
+        "id": "multi_11",
+        "category": "multi_country",
+        "question": "Compare the methane emission reduction pledges of the USA and Brazil.",
+        "geography_iso": "USA",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["USA", "Brazil", "methane", "reduction"]
+    },
+    {
+        "id": "multi_12",
+        "category": "multi_country",
+        "question": "What are the differences in 2030 emission baseline years between the EU, USA, and Japan?",
+        "geography_iso": "EU",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["EU", "USA", "Japan", "baseline", "2005", "1990", "2013"]
+    },
+    {
+        "id": "multi_13",
+        "category": "multi_country",
+        "question": "Compare the electric vehicle targets in domestic policies of the UK and France.",
+        "geography_iso": "GBR",
+        "expected_namespace": "national_laws",
+        "ground_truth_keywords": ["UK", "France", "electric vehicle", "EV"]
+    },
+    {
+        "id": "multi_14",
+        "category": "multi_country",
+        "question": "Contrast the carbon neutrality deadlines of Saudi Arabia and South Africa.",
+        "geography_iso": "SAU",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["Saudi Arabia", "South Africa", "2060", "2050", "neutrality"]
+    },
+    {
+        "id": "multi_15",
+        "category": "multi_country",
+        "question": "How do the climate adaptation strategies in the NDCs of Indonesia and Turkey compare?",
+        "geography_iso": "IDN",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["Indonesia", "Turkey", "adaptation", "resilience"]
+    },
+    {
+        "id": "multi_16",
+        "category": "multi_country",
+        "question": "Compare the renewable electricity capacity targets of India and Germany by 2030.",
+        "geography_iso": "IND",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["India", "Germany", "renewable", "electricity", "GW"]
+    },
+    {
+        "id": "multi_17",
+        "category": "multi_country",
+        "question": "Compare the offshore wind power generation targets of the UK and China.",
+        "geography_iso": "GBR",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["UK", "China", "wind", "offshore"]
+    },
+    {
+        "id": "multi_18",
+        "category": "multi_country",
+        "question": "Contrast the carbon capture, utilization, and storage (CCUS) policies of the USA and Saudi Arabia.",
+        "geography_iso": "USA",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["USA", "Saudi Arabia", "CCUS", "carbon capture"]
+    },
+    {
+        "id": "multi_19",
+        "category": "multi_country",
+        "question": "Compare the emission reduction commitments for the agricultural sector in the NDCs of Australia and Canada.",
+        "geography_iso": "AUS",
+        "expected_namespace": "ndc_commitments",
+        "ground_truth_keywords": ["Australia", "Canada", "agriculture", "emissions"]
+    },
+    {
+        "id": "multi_20",
+        "category": "multi_country",
+        "question": "How do the energy efficiency targets of Japan and Italy compare in their national plans?",
+        "geography_iso": "JPN",
+        "expected_namespace": "national_laws",
+        "ground_truth_keywords": ["Japan", "Italy", "energy efficiency", "efficiency"]
+    },
 
     # --- Category 3: Law vs pledge (20 queries) ---
     {
@@ -229,17 +354,142 @@ EVAL_QUERIES = [
         "expected_namespace": "all",
         "ground_truth_keywords": ["Climate Change Act", "NDC", "carbon budget", "68%"]
     },
-    # Programmatic shorthand filler for law vs pledge to ensure full 60 query suite
-    *[
-        {
-            "id": f"law_vs_pledge_{i:02d}",
-            "category": "law_vs_pledge",
-            "question": f"Analyze how national laws support international pledges under the Paris Agreement in G20 states.",
-            "geography_iso": "USA",
-            "expected_namespace": "all",
-            "ground_truth_keywords": ["legislation", "pledge", "Paris Agreement"]
-        } for i in range(4, 21)
-    ]
+    {
+        "id": "law_vs_pledge_04",
+        "category": "law_vs_pledge",
+        "question": "Is France's statutory target in its Energy-Climate Law aligned with its contribution under the EU NDC?",
+        "geography_iso": "FRA",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Energy-Climate Law", "EU NDC", "France", "55%", "neutrality"]
+    },
+    {
+        "id": "law_vs_pledge_05",
+        "category": "law_vs_pledge",
+        "question": "How does Australia's Climate Change Act 2022 targets align with its updated 2022 NDC commitment?",
+        "geography_iso": "AUS",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Climate Change Act", "NDC", "Australia", "43%"]
+    },
+    {
+        "id": "law_vs_pledge_06",
+        "category": "law_vs_pledge",
+        "question": "Does Canada's Net-Zero Emissions Accountability Act match its updated NDC target of 40-45% reduction?",
+        "geography_iso": "CAN",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Net-Zero", "Accountability Act", "NDC", "40-45%"]
+    },
+    {
+        "id": "law_vs_pledge_07",
+        "category": "law_vs_pledge",
+        "question": "How do Brazil's National Policy on Climate Change (PNMC) targets compare to its international NDC pledge?",
+        "geography_iso": "BRA",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["PNMC", "NDC", "Brazil", "reduction", "pledge"]
+    },
+    {
+        "id": "law_vs_pledge_08",
+        "category": "law_vs_pledge",
+        "question": "Does Japan's Act on Promotion of Global Warming Countermeasures align with its 46% emissions reduction NDC?",
+        "geography_iso": "JPN",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Global Warming Countermeasures", "NDC", "Japan", "46%"]
+    },
+    {
+        "id": "law_vs_pledge_09",
+        "category": "law_vs_pledge",
+        "question": "How does South Korea's Framework Act on Carbon Neutrality and Green Growth match its 2030 NDC target of 40%?",
+        "geography_iso": "KOR",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Framework Act", "NDC", "South Korea", "40%"]
+    },
+    {
+        "id": "law_vs_pledge_10",
+        "category": "law_vs_pledge",
+        "question": "Does Mexico's General Climate Change Law align with its updated NDC commitments of 35% unconditional reduction?",
+        "geography_iso": "MEX",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["General Climate Change Law", "NDC", "Mexico", "35%"]
+    },
+    {
+        "id": "law_vs_pledge_11",
+        "category": "law_vs_pledge",
+        "question": "Compare the domestic policies under China's 1+N policy framework with its carbon peaking NDC goal before 2030.",
+        "geography_iso": "CHN",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["1+N", "NDC", "China", "peaking", "2030"]
+    },
+    {
+        "id": "law_vs_pledge_12",
+        "category": "law_vs_pledge",
+        "question": "Is the United Kingdom's Net Zero Strategy legally backed by the Climate Change Act and consistent with its 68% NDC target?",
+        "geography_iso": "GBR",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Net Zero Strategy", "Climate Change Act", "68%", "NDC"]
+    },
+    {
+        "id": "law_vs_pledge_13",
+        "category": "law_vs_pledge",
+        "question": "Does South Africa's draft Climate Change Bill align with the emissions trajectory in its updated NDC?",
+        "geography_iso": "ZAF",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Climate Change Bill", "NDC", "South Africa", "emissions range"]
+    },
+    {
+        "id": "law_vs_pledge_14",
+        "category": "law_vs_pledge",
+        "question": "Does Italy's National Energy and Climate Plan (PNIEC) meet the emission targets defined in the EU NDC?",
+        "geography_iso": "ITA",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["PNIEC", "EU NDC", "Italy", "energy", "emissions"]
+    },
+    {
+        "id": "law_vs_pledge_15",
+        "category": "law_vs_pledge",
+        "question": "How does the USA's Clean Air Act regulatory scope compare to the targets pledged in its 2021 NDC?",
+        "geography_iso": "USA",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Clean Air Act", "NDC", "USA", "emissions", "regulation"]
+    },
+    {
+        "id": "law_vs_pledge_16",
+        "category": "law_vs_pledge",
+        "question": "Compare Turkey's Climate Law draft to its updated NDC pledge of a 41% reduction by 2030.",
+        "geography_iso": "TUR",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Climate Law", "NDC", "Turkey", "41%"]
+    },
+    {
+        "id": "law_vs_pledge_17",
+        "category": "law_vs_pledge",
+        "question": "Does Argentina's Law on Minimum Standards for Global Climate Change Adaptation and Mitigation align with its NDC absolute cap?",
+        "geography_iso": "ARG",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Minimum Standards", "NDC", "Argentina", "adaptation", "mitigation"]
+    },
+    {
+        "id": "law_vs_pledge_18",
+        "category": "law_vs_pledge",
+        "question": "Does Indonesia's Law on Environmental Protection and Management align with its updated NDC targets?",
+        "geography_iso": "IDN",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Environmental Protection", "NDC", "Indonesia", "targets"]
+    },
+    {
+        "id": "law_vs_pledge_19",
+        "category": "law_vs_pledge",
+        "question": "How does Saudi Arabia's national circular carbon economy program align with its NDC pledge to reduce 278 MtCO2e annually?",
+        "geography_iso": "SAU",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["circular carbon economy", "NDC", "Saudi Arabia", "278 million tons"]
+    },
+    {
+        "id": "law_vs_pledge_20",
+        "category": "law_vs_pledge",
+        "question": "How does Russia's Federal Law on Limiting Greenhouse Gas Emissions compare with its NDC target of 70% of 1990 levels?",
+        "geography_iso": "RUS",
+        "expected_namespace": "all",
+        "ground_truth_keywords": ["Limiting Greenhouse Gas", "NDC", "Russia", "70%", "1990"]
+    }
 ]
 
 def run_local_evaluation(pipeline: Any, chain: Any) -> Dict[str, Any]:

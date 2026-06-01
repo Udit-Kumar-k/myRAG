@@ -31,6 +31,5 @@ jobs:
         
     - name: Run RAGAS eval gate simulation
       run: |
-        # Run eval.py to generate eval dataset and run local metrics
-        # Mock retrieval and check that validation setup functions correctly
-        python -m src.backend.eval
+        # Run eval gate to execute RAGAS faithfulness threshold check
+        python eval/run_eval_gate.py

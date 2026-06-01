@@ -60,5 +60,58 @@
         "timestamp": 1780207905.196985
       }
     ]
+  },
+  "user_00000000-0000-0000-0000-000000000000": {
+    "test_conv_abc": [
+      {
+        "message_id": "c54c4c20-8379-4779-994b-3edae34a2de6",
+        "timestamp": 1780212455.1673944,
+        "role": "user",
+        "content": "Who is the prime minister of France?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "4f33afc4-1964-4433-8bcb-72f83f7c8c99",
+        "timestamp": 1780212455.194744,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed G20 climate documents for this query. Consult official UNFCCC or government sources.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "9c43fc53-4b83-4779-9823-5a4c29eb7933",
+        "timestamp": 1780212455.2465174,
+        "role": "user",
+        "content": "What is Germany's 2030 target?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "a44e2f4f-9ce6-4ede-af46-37f83b0fa136",
+        "timestamp": 1780212455.2795477,
+        "role": "assistant",
+        "content": "Germany targets 65% reduction by 2030 under its Climate Protection Act.",
+        "sources": [
+          {
+            "document_name": "Climate Protection Act",
+            "geography_iso": "DEU",
+            "pub_year": 2021,
+            "namespace": "national_laws",
+            "source_url": "https://bundesregierung.de/law",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "national_laws"
+      }
+    ]
   }
 }

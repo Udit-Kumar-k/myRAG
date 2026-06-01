@@ -85,10 +85,16 @@ Create a `.env` file in the project root:
 ```env
 GEMINI_API_KEY=your_google_ai_studio_api_key_here
 HF_TOKEN=your_huggingface_token_here
-FIREBASE_CREDENTIALS_PATH=path_to_firebase_service_account_json_if_using
-MOCK_AUTH=true # Bypasses live Firebase check for local testing
+SUPABASE_URL=your_supabase_project_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_KEY=your_supabase_service_role_key_here
+DATABASE_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
+MOCK_AUTH=true # Bypasses live Supabase OAuth verification check for local testing
 CONFIDENCE_THRESHOLD=0.65
 ```
+
+### 2. Database Initialization
+Before running the backend, navigate to the Supabase Dashboard SQL Editor and execute the schema initialization script located at [schema.sql](file:///C:/RAGprjt/myRAG/src/backend/schema.sql) to create the tables, indexes, and RLS policies.
 
 ### 2. Stream Data and Build Indexes
 

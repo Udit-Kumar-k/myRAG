@@ -10,8 +10,11 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
     For each country, a positive is the correct target chunk, and a hard negative
     is another document (or different year) from the same country.
     """
+    import pickle
+    import glob
+    
     if not os.path.exists(eval_set_path):
-        print(f"Eval set not found at {eval_set_path}. Creating a sample triplet dataset.")
+        print(f"Eval set not found at {eval_set_path}. Using a fallback triplet dataset.")
         return [
             InputExample(
                 texts=[
@@ -25,17 +28,97 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
     with open(eval_set_path, "r") as f:
         queries = json.load(f)
         
+    # Load all available chunks from index files
+    all_chunks = []
+    index_dir = "data/indexes"
+    for pkl_file in glob.glob(os.path.join(index_dir, "*_chunks.pkl")):
+        try:
+            with open(pkl_file, "rb") as f:
+                chunks = pickle.load(f)
+                all_chunks.extend(chunks)
+        except Exception as e:
+            print(f"Error loading {pkl_file}: {e}")
+            
+    print(f"Loaded {len(all_chunks)} chunks from index files for hard negative mining.")
+    
     examples = []
     for item in queries:
         q = item["question"]
-        # Ground truth acts as positive
-        pos = item.get("ground_truth", f"Verifiable climate targets for {item['geography_iso']} in {item.get('expected_namespace', 'NDC')}")
+        target_iso = item.get("geography_iso")
+        expected_ns = item.get("expected_namespace")
+        keywords = item.get("ground_truth_keywords", [])
         
-        # Mine hard negative: Same country, but opposite namespace or older concept
-        # We construct a hard negative explicitly representing the wrong target detail
-        neg = f"General climate protection policy guidelines in {item['geography_iso']} focusing on administrative capacities and general stocktake updates, without specific targets."
+        # Filter chunks for this country
+        country_chunks = [
+            c for c in all_chunks 
+            if c.get("metadata", {}).get("geography_iso") == target_iso
+        ]
         
-        examples.append(InputExample(texts=[q, pos, neg]))
+        pos_text = None
+        neg_text = None
+        
+        if country_chunks:
+            # Find positive chunk: highest keyword overlap
+            best_pos_score = -1
+            best_pos_chunk = None
+            
+            for chunk in country_chunks:
+                text_lower = chunk["text"].lower()
+                score = sum(1 for kw in keywords if kw.lower() in text_lower)
+                
+                # Add small boost for matching namespace
+                if chunk.get("metadata", {}).get("namespace") == expected_ns:
+                    score += 0.5
+                
+                # Add boost for newer years
+                year = chunk.get("metadata", {}).get("pub_year", 2000)
+                score += (year - 1990) * 0.01
+                
+                if score > best_pos_score:
+                    best_pos_score = score
+                    best_pos_chunk = chunk
+                    
+            if best_pos_chunk:
+                pos_text = best_pos_chunk["text"]
+                pos_year = best_pos_chunk.get("metadata", {}).get("pub_year", 2000)
+                
+                # Find hard negative chunk: same country, but different (ideally older) year or different namespace
+                best_neg_score = -1
+                best_neg_chunk = None
+                
+                for chunk in country_chunks:
+                    if chunk == best_pos_chunk or chunk["text"] == pos_text:
+                        continue
+                        
+                    meta = chunk.get("metadata", {})
+                    year = meta.get("pub_year", 2000)
+                    
+                    # Score negative: higher score if older than positive, or different namespace
+                    score = 0.0
+                    if year < pos_year:
+                        score += 2.0
+                        score += (pos_year - year) * 0.1
+                    if meta.get("namespace") != expected_ns:
+                        score += 1.0
+                        
+                    # Add keyword overlap check to make it a HARD negative (focuses on similar concept)
+                    text_lower = chunk["text"].lower()
+                    keyword_overlap = sum(1 for kw in ["emission", "emissions", "target", "climate", "neutrality", "reduction", "co2"] if kw in text_lower)
+                    score += keyword_overlap * 0.2
+                    
+                    if score > best_neg_score:
+                        best_neg_score = score
+                        best_neg_chunk = chunk
+                        
+                if best_neg_chunk:
+                    neg_text = best_neg_chunk["text"]
+                    
+        # 3. Fallback to synthetic but realistic G20 chunks if index is empty/insufficient
+        if not pos_text or not neg_text:
+            pos_text = f"Official update: {target_iso} commits to emissions targets: " + ", ".join(keywords) + " for " + ("the NDC target" if expected_ns == "ndc_commitments" else "national legislation") + "."
+            neg_text = f"Historical record: In an older policy document, {target_iso} discussed general climate strategies, noting administrative arrangements and stocktaking updates without specific " + ", ".join(keywords[:2] if keywords else ["commitments"]) + " targets."
+            
+        examples.append(InputExample(texts=[q, pos_text, neg_text]))
         
     print(f"Mined {len(examples)} contrastive training triplets.")
     return examples
