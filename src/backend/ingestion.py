@@ -153,7 +153,6 @@ def filter_and_stream_dataset(hf_token: Optional[str] = None) -> Generator[Dict[
     from datasets import load_dataset
     
     # Load dataset in streaming mode
-    # Some datasets require hf_token to be set if they are private or gated
     dataset = load_dataset(
         "ClimatePolicyRadar/all-document-text-data", 
         split="train", 
@@ -161,21 +160,43 @@ def filter_and_stream_dataset(hf_token: Optional[str] = None) -> Generator[Dict[
         token=hf_token
     )
     
+    print("Scanning dataset stream (filtering for English + G20 documents)...")
+    scanned_count = 0
     for row in dataset:
-        doc_metadata = row.get("document_metadata", {})
-        language = doc_metadata.get("language_iso", "")
-        geography = doc_metadata.get("geography_iso", "")
+        scanned_count += 1
+        if scanned_count % 10000 == 0:
+            print(f"Scanned {scanned_count} raw text blocks from Hugging Face stream...")
+            
+        # Extract fields from the flattened dataset structure
+        languages = row.get("document_metadata.languages") or []
+        geographies = row.get("document_metadata.geographies") or []
         
+        # Check if the document language is English (default to True if metadata is empty)
+        is_english = not languages or "en" in languages or any(lang.lower().startswith("en") for lang in languages)
+        
+        # Find matching G20 geography code (e.g. 'USA', 'IND', 'EU')
+        matching_geography = None
+        for geo in geographies:
+            geo_upper = geo.upper()
+            if geo_upper in G20_ISO_CODES:
+                matching_geography = geo_upper
+                break
+                
         # Keep G20 countries and English language only
-        if language == "en" and geography in G20_ISO_CODES:
-            # Yield record flat structure with essential fields
+        if is_english and matching_geography:
+            text = row.get("text_block.text") or ""
+            doc_title = row.get("document_metadata.document_title") or row.get("document_metadata.family_title") or "Unknown Document"
+            corpus_type_name = row.get("document_metadata.corpus_type_name") or ""
+            publication_ts = row.get("document_metadata.publication_ts") or ""
+            source_url = row.get("document_metadata.source_url") or ""
+            
             yield {
-                "text": row.get("text_block_text", ""),
-                "document_name": row.get("document_name", ""),
-                "corpus_type_name": doc_metadata.get("corpus_type_name", ""),
-                "publication_ts": doc_metadata.get("publication_ts", ""),
-                "geography_iso": geography,
-                "source_url": row.get("document_source_url", ""),
+                "text": text,
+                "document_name": doc_title,
+                "corpus_type_name": corpus_type_name,
+                "publication_ts": publication_ts,
+                "geography_iso": matching_geography,
+                "source_url": source_url,
             }
 
 def process_corpus(hf_token: Optional[str] = None, tokenizer: Optional[Any] = None, max_docs: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -203,8 +224,7 @@ def process_corpus(hf_token: Optional[str] = None, tokenizer: Optional[Any] = No
             all_chunks.extend(doc_chunks)
             doc_count += 1
             
-            if doc_count % 100 == 0:
-                print(f"Processed {doc_count} documents. Total chunks so far: {len(all_chunks)}")
+            print(f"[{doc_count}] Processed document: {current_doc_name} ({len(doc_chunks)} chunks). Total chunks: {len(all_chunks)}")
                 
             if max_docs and doc_count >= max_docs:
                 break

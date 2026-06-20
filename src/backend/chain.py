@@ -41,27 +41,55 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
     return "\n\n".join(formatted)
 
 class ClimateRAGChain:
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemma-4-31b-it"):
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-        self.model_name = model_name
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
+        self.provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
+        
+        # Determine the API key to use
+        if api_key:
+            self.api_key = api_key
+        else:
+            if self.provider == "groq":
+                self.api_key = os.environ.get("GROQ_API_KEY")
+            else:
+                self.api_key = os.environ.get("GEMINI_API_KEY")
+                
+        # Resolve model name
+        if model_name:
+            self.model_name = model_name
+        else:
+            env_model = os.environ.get("LLM_MODEL")
+            if env_model:
+                self.model_name = env_model
+            else:
+                self.model_name = "llama-3.1-70b-versatile" if self.provider == "groq" else "gemma-4-31b-it"
+                
         self._llm = None
         self._chain = None
 
     def _init_llm(self):
-        """Lazy loads the LangChain Gemini integration model."""
+        """Lazy loads the LangChain dynamic integration model (Gemini or Groq)."""
         if self._llm is None:
             if not self.api_key:
-                raise ValueError("GEMINI_API_KEY is not set. Please provide it or set the environment variable.")
+                raise ValueError(f"API key is not set for provider '{self.provider}'. Please set the appropriate environment variable (GEMINI_API_KEY or GROQ_API_KEY).")
             
-            print(f"Initializing model {self.model_name}...")
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            
-            self._llm = ChatGoogleGenerativeAI(
-                model=self.model_name,
-                google_api_key=self.api_key,
-                temperature=0.1, # Enforce factual output
-                max_tokens=2048
-            )
+            print(f"Initializing {self.provider} model {self.model_name}...")
+            if self.provider == "groq":
+                from langchain_groq import ChatGroq
+                self._llm = ChatGroq(
+                    model=self.model_name,
+                    groq_api_key=self.api_key,
+                    temperature=0.1,
+                    max_tokens=2048
+                )
+            else:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                
+                self._llm = ChatGoogleGenerativeAI(
+                    model=self.model_name,
+                    google_api_key=self.api_key,
+                    temperature=0.1, # Enforce factual output
+                    max_tokens=2048
+                )
             print("LLM initialized successfully.")
             
     def get_chain(self):

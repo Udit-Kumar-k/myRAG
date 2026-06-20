@@ -19,47 +19,6 @@ def print_table(results: List[Dict[str, Any]]):
         vals = [row[h] for h in headers]
         print("| " + " | ".join(vals) + " |")
 
-def run_simulated_experiment() -> List[Dict[str, Any]]:
-    """Generates realistic/simulated metrics when running without active GPU models/indexes."""
-    print("Running A/B experiment in SIMULATION mode.")
-    return [
-        {
-            "Configuration": "1. Baseline (Dense only, simple chunks)",
-            "Context Recall": "64.8%",
-            "RAGAS Faithfulness": "0.682",
-            "Refusal Rate": "25.0%",
-            "Avg Latency (s)": "0.14s"
-        },
-        {
-            "Configuration": "2. +rechunking (Semantic chunking)",
-            "Context Recall": "73.5%",
-            "RAGAS Faithfulness": "0.758",
-            "Refusal Rate": "18.3%",
-            "Avg Latency (s)": "0.15s"
-        },
-        {
-            "Configuration": "3. +hybrid (Dense + Sparse RRF)",
-            "Context Recall": "81.7%",
-            "RAGAS Faithfulness": "0.801",
-            "Refusal Rate": "13.3%",
-            "Avg Latency (s)": "0.21s"
-        },
-        {
-            "Configuration": "4. +reranking (Cross-Encoder Reranker)",
-            "Context Recall": "85.0%",
-            "RAGAS Faithfulness": "0.875",
-            "Refusal Rate": "10.0%",
-            "Avg Latency (s)": "0.45s"
-        },
-        {
-            "Configuration": "5. +temporal (Full: RRF + Rerank + Temporal)",
-            "Context Recall": "88.3%",
-            "RAGAS Faithfulness": "0.914",
-            "Refusal Rate": "8.3%",
-            "Avg Latency (s)": "0.46s"
-        }
-    ]
-
 def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any]:
     """Runs evaluation on the 60-query eval set under a specific configuration."""
     start_time = time.time()
@@ -128,11 +87,7 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
             answer = "Insufficient evidence found."
         else:
             try:
-                # Mock/simulate LLM answer for speed if no API key
-                if not os.environ.get("GEMINI_API_KEY"):
-                    answer = f"Targets for {target_iso}: " + ", ".join(item.get("ground_truth_keywords", []))
-                else:
-                    answer = chain.run(item["question"], retrieved_chunks, history=[])
+                answer = chain.run(item["question"], retrieved_chunks, history=[])
             except Exception:
                 answer = "Error generating response."
                 
@@ -146,33 +101,68 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
     recall_rate = correct_recall / len(queries_subset)
     refusal_rate = refused_count / len(queries_subset)
     
-    # Compute faithfulness (using Ragas evaluator if API key available, else simulated)
-    faithfulness_score = 0.0
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if api_key:
-        try:
-            from datasets import Dataset
-            from ragas import evaluate
-            from ragas.metrics import faithfulness
-            from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-            
-            data = {
-                "question": [r["question"] for r in records],
-                "answer": [r["answer"] for r in records],
-                "contexts": [r["contexts"] for r in records]
-            }
-            dataset = Dataset.from_dict(data)
-            evaluator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.0)
-            evaluator_embeds = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
-            results = evaluate(dataset=dataset, metrics=[faithfulness], llm=evaluator_llm, embeddings=evaluator_embeds)
-            faithfulness_score = results.get("faithfulness", 0.0)
-        except Exception:
-            # Fallback
-            faithfulness_score = 0.65 + 0.05 * config_num
+    # Compute faithfulness using the configured provider (supporting Gemini and Groq)
+    provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
+    if provider == "groq":
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY must be set to run evaluation.")
     else:
-        # Simulated faithfulness scores showing progress
-        base_scores = {1: 0.682, 2: 0.758, 3: 0.801, 4: 0.875, 5: 0.914}
-        faithfulness_score = base_scores.get(config_num, 0.80)
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY must be set to run evaluation.")
+            
+    try:
+        from datasets import Dataset
+        from ragas import evaluate
+        from ragas.metrics import faithfulness
+        
+        data = {
+            "question": [r["question"] for r in records],
+            "answer": [r["answer"] for r in records],
+            "contexts": [r["contexts"] for r in records]
+        }
+        dataset = Dataset.from_dict(data)
+        
+        if provider == "groq":
+            from langchain_groq import ChatGroq
+            eval_model = os.environ.get("LLM_MODEL", "llama-3.1-70b-versatile")
+            evaluator_llm = ChatGroq(
+                model=eval_model,
+                groq_api_key=api_key,
+                temperature=0.0
+            )
+        else:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            eval_model = os.environ.get("LLM_MODEL", "gemini-1.5-flash")
+            evaluator_llm = ChatGoogleGenerativeAI(
+                model=eval_model,
+                google_api_key=api_key,
+                temperature=0.0
+            )
+            
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            evaluator_embeds = GoogleGenerativeAIEmbeddings(
+                model="models/embedding-001",
+                google_api_key=gemini_key
+            )
+        else:
+            print("GEMINI_API_KEY not found. Using local HuggingFace embeddings for RAGAS evaluation...")
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            evaluator_embeds = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            
+        results = evaluate(
+            dataset=dataset,
+            metrics=[faithfulness],
+            llm=evaluator_llm,
+            embeddings=evaluator_embeds
+        )
+        faithfulness_score = results.get("faithfulness", 0.0)
+    except Exception as e:
+        print(f"Error during RAGAS evaluation: {e}")
+        raise e
         
     config_names = {
         1: "1. Baseline (Dense only, simple chunks)",
@@ -194,29 +184,24 @@ def main():
     print("=== ClimateRAG A/B Comparison Experiment ===")
     
     index_exists = os.path.exists("data/indexes/national_laws_chunks.pkl")
+    if not index_exists:
+        raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
+        
+    from src.backend.indexing import ClimateIndexManager
+    from src.backend.retrieval import ClimateRAGPipeline
+    from src.backend.chain import ClimateRAGChain
     
-    if index_exists:
-        try:
-            from src.backend.indexing import ClimateIndexManager
-            from src.backend.retrieval import ClimateRAGPipeline
-            from src.backend.chain import ClimateRAGChain
-            
-            print("Loading indexes and pipeline for actual runs...")
-            index_manager = ClimateIndexManager()
-            index_manager.load_indexes()
-            pipeline = ClimateRAGPipeline(index_manager)
-            chain = ClimateRAGChain()
-            
-            results = []
-            for i in range(1, 6):
-                print(f"Evaluating Configuration {i}/5...")
-                res = evaluate_config(pipeline, chain, i)
-                results.append(res)
-        except Exception as e:
-            print(f"Error running real experiments: {e}. Falling back to simulation.")
-            results = run_simulated_experiment()
-    else:
-        results = run_simulated_experiment()
+    print("Loading indexes and pipeline for actual runs...")
+    index_manager = ClimateIndexManager()
+    index_manager.load_indexes()
+    pipeline = ClimateRAGPipeline(index_manager)
+    chain = ClimateRAGChain()
+    
+    results = []
+    for i in range(1, 6):
+        print(f"Evaluating Configuration {i}/5...")
+        res = evaluate_config(pipeline, chain, i)
+        results.append(res)
         
     print("\nExperiment Complete. Results Table:")
     print_table(results)

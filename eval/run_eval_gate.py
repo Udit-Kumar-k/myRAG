@@ -9,42 +9,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.backend.eval import EVAL_QUERIES
 
-def simulate_pipeline_run(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Simulates query execution when indexes or models are not built."""
-    print("Running in PIPELINE SIMULATION mode (no heavy models/indexes).")
-    dataset_records = []
-    
-    for item in queries:
-        q = item["question"]
-        iso = item["geography_iso"]
-        ns = item["expected_namespace"]
-        keywords = item.get("ground_truth_keywords", [])
-        
-        # Simulate retrieved chunks
-        chunk_text = f"The official climate policy documentation for {iso} outlines strategies and targets. In particular, {iso} specifies a target for 2030, aiming at " + " ".join(keywords) + " for mitigation and adaptation efforts."
-        retrieved_chunks = [{
-            "text": chunk_text,
-            "metadata": {
-                "document_name": "Climate Strategy Doc",
-                "geography_iso": iso,
-                "pub_year": 2021,
-                "namespace": ns,
-                "source_url": f"https://gov.{iso.lower()}/climate"
-            },
-            "relevance_score": 0.85
-        }]
-        
-        # Simulate LLM answer containing the quotes/keywords
-        answer = f"According to the {iso} Climate Strategy Doc, {iso} targets a reduction of " + " and ".join(keywords[:2]) + f" by 2030 [{chunk_text}]."
-        
-        dataset_records.append({
-            "question": q,
-            "answer": answer,
-            "contexts": [chunk_text]
-        })
-        
-    return dataset_records
-
 def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Runs queries through the actual RAG pipeline and Chain."""
     print("Running queries through the actual ClimateRAG pipeline...")
@@ -86,40 +50,24 @@ def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return dataset_records
 
 def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
-    """Computes RAGAS faithfulness score, with mock fallback if API key is missing."""
-    api_key = os.environ.get("GEMINI_API_KEY")
+    """Computes RAGAS faithfulness score using the configured LLM provider."""
+    provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
     
-    if not api_key:
-        print("GEMINI_API_KEY not found in environment. Running RAGAS in SIMULATION mode.")
-        # Heuristic/simulation calculation
-        total_faithfulness = 0.0
-        for rec in dataset_records:
-            ans = rec["answer"]
-            ctxs = rec["contexts"]
+    # We require the configured provider's API key
+    if provider == "groq":
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY must be set to run evaluation.")
+    else:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY must be set to run evaluation.")
             
-            # Simple heuristic score: check if answer mentions the contexts' content or has quotes
-            if "Insufficient evidence" in ans or not ctxs:
-                score = 1.0 # Refusal is technically 100% faithful to the lack of context
-            else:
-                # Count matching words from answer in context
-                words = re.findall(r"\b\w{3,}\b", ans.lower())
-                combined_ctx = " ".join(ctxs).lower()
-                matches = sum(1 for w in words if w in combined_ctx)
-                overlap = matches / len(words) if words else 1.0
-                score = 0.75 + 0.24 * overlap # Keep it in [0.75, 0.99] range
-            total_faithfulness += score
-            
-        avg_faithfulness = total_faithfulness / len(dataset_records)
-        print(f"Simulated RAGAS Faithfulness: {avg_faithfulness:.4f}")
-        return avg_faithfulness
-        
-    # Real Ragas evaluation using Gemini
-    print("Initializing RAGAS evaluator using Gemini API...")
+    print(f"Initializing RAGAS evaluator using {provider}...")
     try:
         from datasets import Dataset
         from ragas import evaluate
         from ragas.metrics import faithfulness
-        from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
         
         # Prepare datasets
         data = {
@@ -129,17 +77,37 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         }
         dataset = Dataset.from_dict(data)
         
-        evaluator_llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=api_key,
-            temperature=0.0
-        )
-        
-        evaluator_embeds = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=api_key
-        )
-        
+        # Instantiate LLM evaluator
+        if provider == "groq":
+            from langchain_groq import ChatGroq
+            eval_model = os.environ.get("LLM_MODEL", "llama-3.1-70b-versatile")
+            evaluator_llm = ChatGroq(
+                model=eval_model,
+                groq_api_key=api_key,
+                temperature=0.0
+            )
+        else:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            eval_model = os.environ.get("LLM_MODEL", "gemini-1.5-flash")
+            evaluator_llm = ChatGoogleGenerativeAI(
+                model=eval_model,
+                google_api_key=api_key,
+                temperature=0.0
+            )
+            
+        # Instantiate Embeddings evaluator
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            evaluator_embeds = GoogleGenerativeAIEmbeddings(
+                model="models/embedding-001",
+                google_api_key=gemini_key
+            )
+        else:
+            print("GEMINI_API_KEY not found. Using local HuggingFace embeddings for RAGAS evaluation...")
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            evaluator_embeds = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            
         print("Computing RAGAS faithfulness...")
         results = evaluate(
             dataset=dataset,
@@ -152,8 +120,8 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         print(f"RAGAS Faithfulness: {score:.4f}")
         return score
     except Exception as e:
-        print(f"Error during real RAGAS evaluation: {e}. Falling back to simulation.")
-        return 0.82
+        print(f"Error during RAGAS evaluation: {e}")
+        raise e
 
 def main():
     print("=== ClimateRAG CI/CD RAGAS Eval Gate ===")
@@ -163,13 +131,11 @@ def main():
     
     # Check if index files exist to decide between real and simulation mode
     index_exists = os.path.exists("data/indexes/national_laws_chunks.pkl")
-    
+    if not index_exists:
+        raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
+        
     try:
-        if index_exists:
-            records = run_real_pipeline(test_queries)
-        else:
-            records = simulate_pipeline_run(test_queries)
-            
+        records = run_real_pipeline(test_queries)
         faithfulness_score = run_ragas_evaluation(records)
         
         threshold = 0.75

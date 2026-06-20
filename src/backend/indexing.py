@@ -143,3 +143,32 @@ class ClimateIndexManager:
                 
         print("All namespace indexes loaded successfully.")
         return True
+
+if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    from src.backend.ingestion import process_corpus
+    
+    print("=== ClimateRAG Index Generation Pipeline ===")
+    
+    # Get HF token if set in environment
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token == "your_huggingface_token_here" or not hf_token:
+        hf_token = None
+        
+    try:
+        # Stream the dataset, group text blocks, and compile chunks
+        # Process all G20 documents in the dataset
+        chunks = process_corpus(hf_token=hf_token, max_docs=None)
+        
+        if not chunks:
+            print("No chunks generated. Check dataset access or country filters.")
+        else:
+            print(f"Generated {len(chunks)} semantic chunks. Compiling indexes...")
+            # Build and save indexes
+            manager = ClimateIndexManager()
+            manager.build_indexes(chunks)
+            print("=== Index Generation Complete ===")
+    except Exception as e:
+        print(f"Error during index compilation: {e}")

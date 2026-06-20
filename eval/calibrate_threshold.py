@@ -38,36 +38,6 @@ OUT_OF_SCOPE_QUERIES = [
     "What are the primary colors in painting?"
 ]
 
-def run_simulated_calibration() -> List[Dict[str, Any]]:
-    """Generates simulated confidence scores representing a realistic distribution."""
-    print("Running calibration in SIMULATION mode.")
-    np.random.seed(42)
-    
-    # 60 in-scope queries: high confidence scores (mean=0.82, std=0.08)
-    in_scope_scores = np.random.normal(0.82, 0.08, len(EVAL_QUERIES))
-    in_scope_scores = np.clip(in_scope_scores, 0.40, 1.0)
-    
-    # 20 out-of-scope queries: low confidence scores (mean=0.45, std=0.12)
-    out_scope_scores = np.random.normal(0.45, 0.12, len(OUT_OF_SCOPE_QUERIES))
-    out_scope_scores = np.clip(out_scope_scores, 0.10, 0.85)
-    
-    records = []
-    for q, score in zip(EVAL_QUERIES, in_scope_scores):
-        records.append({
-            "question": q["question"],
-            "confidence_score": float(score),
-            "is_in_scope": True
-        })
-        
-    for q, score in zip(OUT_OF_SCOPE_QUERIES, out_scope_scores):
-        records.append({
-            "question": q,
-            "confidence_score": float(score),
-            "is_in_scope": False
-        })
-        
-    return records
-
 def run_real_calibration() -> List[Dict[str, Any]]:
     """Runs queries through the actual pipeline and collects confidence scores."""
     print("Running calibration using actual indexed RAG pipeline...")
@@ -105,15 +75,14 @@ def main():
     print("=== ClimateRAG Confidence Threshold Calibration ===")
     
     index_exists = os.path.exists("data/indexes/national_laws_chunks.pkl")
-    
-    if index_exists:
-        try:
-            records = run_real_calibration()
-        except Exception as e:
-            print(f"Error running real calibration: {e}. Falling back to simulation.")
-            records = run_simulated_calibration()
-    else:
-        records = run_simulated_calibration()
+    if not index_exists:
+        raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
+        
+    try:
+        records = run_real_calibration()
+    except Exception as e:
+        print(f"Error running real calibration: {e}")
+        sys.exit(1)
         
     # Calibrate thresholds from 0.0 to 1.0
     thresholds = np.linspace(0.0, 1.0, 101)

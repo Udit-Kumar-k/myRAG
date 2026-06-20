@@ -1,0 +1,22 @@
+# Environment variables
+.env
+
+# Local database fallback
+data/local_db.json
+data/indexes/
+data/ab_comparison_results.md
+data/calibration_details.json
+data/confidence_calibration.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Node/React Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
