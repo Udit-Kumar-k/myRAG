@@ -1,4 +1,4 @@
-/* ClimateRAG Core Design System */
+/* MedRAG Core Design System */
 :root {
   --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -8,16 +8,16 @@
   --bg-surface: hsla(222, 20%, 12%, 0.7);
   --bg-surface-hover: hsla(222, 20%, 16%, 0.8);
   --border-color: hsla(222, 20%, 25%, 0.4);
-  --border-focus: hsla(150, 80%, 45%, 0.6);
+  --border-focus: hsla(210, 80%, 50%, 0.6);
 
   --text-primary: hsl(0, 0%, 98%);
   --text-secondary: hsl(220, 15%, 75%);
   --text-muted: hsl(220, 12%, 55%);
 
-  --primary: hsl(150, 70%, 42%);      /* Emerald/Climate Green */
-  --primary-glow: hsla(150, 70%, 42%, 0.15);
-  --secondary: hsl(205, 80%, 50%);    /* Ocean Blue */
-  --secondary-glow: hsla(205, 80%, 50%, 0.15);
+  --primary: hsl(210, 80%, 50%);      /* Medical Blue */
+  --primary-glow: hsla(210, 80%, 50%, 0.15);
+  --secondary: hsl(270, 75%, 65%);    /* Medical Purple */
+  --secondary-glow: hsla(270, 75%, 65%, 0.15);
 
   --accent-purple: hsl(270, 75%, 65%);
   --accent-orange: hsl(30, 85%, 55%);
@@ -49,8 +49,8 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   background-image: 
-    radial-gradient(at 0% 0%, hsla(150, 70%, 42%, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, hsla(205, 80%, 50%, 0.08) 0px, transparent 50%);
+    radial-gradient(at 0% 0%, hsla(210, 80%, 50%, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(270, 75%, 65%, 0.08) 0px, transparent 50%);
 }
 
 #root {
@@ -333,19 +333,19 @@ body {
   font-weight: 500;
 }
 
-.namespace-laws {
-  background-color: hsla(270, 75%, 65%, 0.15);
-  color: var(--accent-purple);
+.namespace-basic_sciences {
+  background-color: hsla(210, 80%, 50%, 0.15);
+  color: var(--primary);
 }
 
-.namespace-ndc_commitments {
-  background-color: hsla(205, 80%, 50%, 0.15);
+.namespace-pharmacology {
+  background-color: hsla(270, 75%, 65%, 0.15);
   color: var(--secondary);
 }
 
-.namespace-international_agreements {
+.namespace-clinical_medicine {
   background-color: hsla(150, 70%, 42%, 0.15);
-  color: var(--primary);
+  color: hsl(150, 70%, 42%);
 }
 
 .citation-title {

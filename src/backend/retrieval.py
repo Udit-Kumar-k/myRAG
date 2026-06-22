@@ -5,54 +5,82 @@ from src.backend.indexing import ClimateIndexManager, tokenize_for_bm25
 
 import re
 
-# Keyword lists for the namespace router
-LAW_KEYWORDS = ["law", "laws", "legislation", "act", "acts", "statute", "statutes", "parliament", "congress", "decree", "regulation", "regulations", "domestic", "bills", "court"]
-NDC_KEYWORDS = ["ndc", "ndcs", "nationally determined contribution", "nationally determined contributions", "pledge", "pledges", "unfccc", "commitment", "commitments", "target", "targets"]
-INT_KEYWORDS = ["paris agreement", "cop", "treaty", "treaties", "kyoto", "accord", "accords", "international agreement", "international agreements", "global stocktake", "un", "protocols", "protocol"]
+# ── Medical subject namespace router ─────────────────────────────────────
+
+BASIC_SCIENCE_KEYWORDS = [
+    "anatomy", "anatomical", "physiology", "physiological",
+    "biochemistry", "biochemical", "genetics", "genetic",
+    "enzyme", "cellular", "membrane", "action potential", "axon",
+    "neurotransmitter", "dna", "rna", "protein synthesis",
+    "mitosis", "meiosis", "embryology", "histology",
+    "krebs cycle", "glycolysis", "oxidative phosphorylation",
+    "ligament", "tendon", "cartilage", "muscle fiber", "myocyte",
+]
+
+PHARMACOLOGY_KEYWORDS = [
+    "drug", "medication", "pharmacology", "pharmacokinetics",
+    "pharmacodynamics", "antibiotic", "antiviral", "antimicrobial",
+    "antifungal", "chemotherapy", "mechanism of action",
+    "drug interaction", "toxicity", "adverse effect", "side effect",
+    "penicillin", "amoxicillin", "statin", "beta blocker",
+    "ace inhibitor", "diuretic", "receptor agonist", "receptor antagonist",
+    "bacteria", "bacterium", "virus", "pathogen", "gram positive",
+    "gram negative", "pathology", "neoplasm", "tumor", "carcinoma",
+    "metastasis", "microbiology", "immunology", "antibody", "antigen",
+]
+
+CLINICAL_KEYWORDS = [
+    "patient", "presents", "presentation", "diagnosis",
+    "differential diagnosis", "treatment", "management", "prognosis",
+    "complication", "emergency", "physician", "clinical", "symptom",
+    "sign", "examination", "laboratory findings", "imaging", "surgery",
+    "therapy", "first-line", "year-old", "comes to the",
+]
+
 
 def route_query(query: str) -> str:
     """
-    Classifies the query intent based on whole-word and phrase matching.
-    Returns one of: 'national_laws', 'ndc_commitments', 'international_agreements', or 'all'.
+    Classifies the medical query to a subject namespace.
+    Returns: 'basic_sciences', 'pharmacology', 'clinical_medicine', or 'all'.
+
+    Most USMLE-style patient-scenario questions hit 'clinical_medicine';
+    pure mechanism / drug questions hit 'pharmacology';
+    structure / process questions hit 'basic_sciences'.
+    Ties and ambiguous queries fall back to 'all' (searches every namespace).
     """
     q_lower = query.lower()
-    
-    # Tokenize query into whole words to avoid substring matching (e.g. 'un' in 'under')
     words = set(re.findall(r"\b\w+\b", q_lower))
-    
+
     def get_score(keywords: List[str]) -> int:
         score = 0
         for kw in keywords:
             if " " in kw:
-                # Multi-word phrase matching
                 if kw in q_lower:
                     score += 1
             else:
-                # Whole word matching
                 if kw in words:
                     score += 1
         return score
-        
-    law_score = get_score(LAW_KEYWORDS)
-    ndc_score = get_score(NDC_KEYWORDS)
-    int_score = get_score(INT_KEYWORDS)
-    
+
+    basic_score    = get_score(BASIC_SCIENCE_KEYWORDS)
+    pharma_score   = get_score(PHARMACOLOGY_KEYWORDS)
+    clinical_score = get_score(CLINICAL_KEYWORDS)
+
     scores = {
-        "national_laws": law_score,
-        "ndc_commitments": ndc_score,
-        "international_agreements": int_score
+        "basic_sciences":  basic_score,
+        "pharmacology":    pharma_score,
+        "clinical_medicine": clinical_score,
     }
-    
+
     max_score = max(scores.values())
     if max_score == 0:
         return "all"
-        
-    # Check if there is a tie for the maximum score
-    tied_namespaces = [ns for ns, score in scores.items() if score == max_score]
-    if len(tied_namespaces) > 1:
+
+    tied = [ns for ns, s in scores.items() if s == max_score]
+    if len(tied) > 1:
         return "all"
-        
-    return tied_namespaces[0]
+
+    return tied[0]
 
 class ClimateRAGPipeline:
     def __init__(self, index_manager: ClimateIndexManager, reranker_name: str = "BAAI/bge-reranker-v2-m3", confidence_threshold: float = 0.65):

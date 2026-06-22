@@ -18,9 +18,12 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
         return [
             InputExample(
                 texts=[
-                    "What is India's emissions intensity target for 2030?",
-                    "India targets 45 percent GDP emission intensity reduction by 2030 relative to 2005 levels.",
-                    "India targets 33-35 percent GDP emissions intensity reduction by 2030 relative to 2005 levels." # Older 2015 NDC as hard negative
+                    "What is the mechanism of action of penicillin?",
+                    "Penicillin inhibits bacterial cell wall synthesis by binding to "
+                    "penicillin-binding proteins (PBPs), preventing cross-linking of "
+                    "peptidoglycan chains, leading to osmotic lysis.",
+                    "Penicillin was discovered by Alexander Fleming in 1928 and "
+                    "revolutionized treatment of bacterial infections worldwide.",
                 ]
             )
         ]
@@ -103,7 +106,7 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
                         
                     # Add keyword overlap check to make it a HARD negative (focuses on similar concept)
                     text_lower = chunk["text"].lower()
-                    keyword_overlap = sum(1 for kw in ["emission", "emissions", "target", "climate", "neutrality", "reduction", "co2"] if kw in text_lower)
+                    keyword_overlap = sum(1 for kw in ["drug", "mechanism", "treatment", "dose", "receptor", "enzyme", "protein", "cell", "antibiotic", "inhibitor"] if kw in text_lower)
                     score += keyword_overlap * 0.2
                     
                     if score > best_neg_score:
@@ -113,10 +116,10 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
                 if best_neg_chunk:
                     neg_text = best_neg_chunk["text"]
                     
-        # 3. Fallback to synthetic but realistic G20 chunks if index is empty/insufficient
+        # 3. Fallback to synthetic but realistic medical chunks if index is empty/insufficient
         if not pos_text or not neg_text:
-            pos_text = f"Official update: {target_iso} commits to emissions targets: " + ", ".join(keywords) + " for " + ("the NDC target" if expected_ns == "ndc_commitments" else "national legislation") + "."
-            neg_text = f"Historical record: In an older policy document, {target_iso} discussed general climate strategies, noting administrative arrangements and stocktaking updates without specific " + ", ".join(keywords[:2] if keywords else ["commitments"]) + " targets."
+            pos_text = f"Medical textbook excerpt: " + ", ".join(keywords) + " — relevant to " + (expected_ns or "clinical_medicine") + "."
+            neg_text = f"General medical overview: A historical summary discussing broad medical concepts without specific " + ", ".join(keywords[:2] if keywords else ["details"]) + " information."
             
         examples.append(InputExample(texts=[q, pos_text, neg_text]))
         

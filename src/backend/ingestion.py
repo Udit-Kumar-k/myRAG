@@ -1,305 +1,136 @@
-import re
 import os
-from typing import Generator, List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 
-# List of G20 ISO country/jurisdiction codes as specified in the plan
-G20_ISO_CODES = {
-    "ARG", "AUS", "BRA", "CAN", "CHN", "DEU", "FRA", "GBR", "IDN", "IND",
-    "ITA", "JPN", "KOR", "MEX", "RUS", "SAU", "TUR", "USA", "ZAF", 
-    "EU", "EUR", "EUE" # Supporting variations of European Union
+# Maps textbook title keywords to subject namespaces.
+# Checked against lowercased title (with underscores/spaces normalized); first match wins.
+TEXTBOOK_NAMESPACE_MAP = {
+    # Basic Sciences
+    "anatomy":            "basic_sciences",
+    "gray":               "basic_sciences",
+    "biochemistry":       "basic_sciences",
+    "lippinc":            "basic_sciences",
+    "cell_biology":       "basic_sciences",
+    "alberts":            "basic_sciences",
+    "histology":          "basic_sciences",
+    "ross":               "basic_sciences",
+    "physiology":         "basic_sciences",
+    "levy":               "basic_sciences",
+    "step1":              "basic_sciences",
+    "step_1":             "basic_sciences",
+
+    # Pharmacology & Pathology
+    "pharmacology":       "pharmacology",
+    "katzung":            "pharmacology",
+    "pathology":          "pharmacology",
+    "robbins":            "pharmacology",
+    "pathoma":            "pharmacology",
+    "husain":             "pharmacology",
+    "immunology":         "pharmacology",
+    "janeway":            "pharmacology",
+
+    # Clinical Medicine
+    "harrison":           "clinical_medicine",
+    "internalmed":        "clinical_medicine",
+    "internal medicine":  "clinical_medicine",
+    "step2":              "clinical_medicine",
+    "step_2":             "clinical_medicine",
+    "step3":              "clinical_medicine",
+    "step_3":             "clinical_medicine",
+    "first aid":          "clinical_medicine",
+    "first_aid":          "clinical_medicine",
+    "surgery":            "clinical_medicine",
+    "schwartz":           "clinical_medicine",
+    "pediatrics":         "clinical_medicine",
+    "nelson":             "clinical_medicine",
+    "obstetrics":         "clinical_medicine",
+    "obstentrics":        "clinical_medicine",  # matches typo in dataset: Obstentrics_Williams
+    "williams":           "clinical_medicine",
+    "gynecology":         "clinical_medicine",
+    "novak":              "clinical_medicine",
+    "psychiatry":         "clinical_medicine",
+    "psichiatry":         "clinical_medicine",  # matches typo in dataset: Psichiatry_DSM-5
+    "neurology":          "clinical_medicine",
+    "adams":              "clinical_medicine",
 }
 
-def extract_year_from_ts(ts: Optional[str], doc_name: Optional[str] = None) -> Optional[int]:
+
+def derive_namespace(title: str) -> str:
+    """Maps a textbook title to one of three subject namespaces."""
+    title_lower = title.lower().replace(" ", "_")
+    for keyword, namespace in TEXTBOOK_NAMESPACE_MAP.items():
+        # Normalize keyword spaces to underscores for robust matching
+        kw_norm = keyword.lower().replace(" ", "_")
+        if kw_norm in title_lower:
+            return namespace
+    return "clinical_medicine"  # safe default
+
+
+def load_medrag_textbooks(
+    dataset_name: str = "MedRAG/textbooks",
+    hf_token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
-    Extracts the publication year from the ISO timestamp string,
-    falling back to scanning the document name if the timestamp is missing or unparseable.
+    Downloads MedRAG/textbooks from HuggingFace.
+    Every row is already a pre-chunked snippet (~182 tokens, ≤1000 chars).
+    SemanticChunker is not needed — no chunking risk.
     """
-    if ts:
-        try:
-            # Match any 4 digit year anywhere in the timestamp
-            match = re.search(r"\b(\d{4})\b", ts)
-            if match:
-                year = int(match.group(1))
-                if 1950 <= year <= 2030:
-                    return year
-        except Exception:
-            pass
-            
-    # Fallback: scan document name for a 4-digit year
-    if doc_name:
-        try:
-            matches = re.findall(r"\b(\d{4})\b", doc_name)
-            for m in matches:
-                year = int(m)
-                if 1990 <= year <= 2030:
-                    return year
-        except Exception:
-            pass
-    return None
-
-def is_heading(text: str) -> bool:
-    """
-    Determines if a block is likely a heading:
-    - Under 15 words
-    - Title Case or ALL CAPS
-    - Excludes single-word legal boilerplate (e.g. 'WHEREAS', 'AND', country names)
-    - Or matches structured section headers (e.g. 'Article 1', 'Section 2')
-    """
-    words = text.strip().split()
-    if not words or len(words) >= 15:
-        return False
-        
-    clean_text = text.strip()
-    
-    # Common legal boilerplate that are NOT section headers
-    EXCLUDED_BOILERPLATE = {
-        "WHEREAS", "AND", "OR", "BUT", "THEREFORE", "NOTING", "RECALLING", 
-        "HAVING", "ADOPTS", "DECIDES", "REQUESTS", "URGES", "WELCOMES", 
-        "AGREES", "ANNEX", "SCHEDULE", "CHAPTER", "PART", "SECTION", "ARTICLE",
-        "ARGENTINA", "AUSTRALIA", "BRAZIL", "CANADA", "CHINA", "GERMANY",
-        "FRANCE", "INDIA", "INDONESIA", "ITALY", "JAPAN", "MEXICO", "RUSSIA",
-        "TURKEY", "EUROPEAN", "UNION"
-    }
-    
-    # If it is a single word, check if it's in the excluded list or is too short
-    if len(words) == 1:
-        word_upper = words[0].upper().rstrip(".:,;")
-        if word_upper in EXCLUDED_BOILERPLATE or len(word_upper) <= 2:
-            return False
-            
-    # Structured patterns (e.g. "Article 6", "Section 1.2", "Decision 1/CP.21")
-    structured_pattern = re.match(
-        r"^(article|section|chapter|decision|part|annex|clause|paragraph|target)\s+\d+", 
-        clean_text.lower()
-    )
-    if structured_pattern:
-        return True
-        
-    is_caps = clean_text.isupper()
-    is_title = clean_text.istitle()
-    
-    # If it is Title Case or ALL CAPS, make sure it is not just legal boilerplate
-    if is_caps or is_title:
-        # Check if the first word is boilerplate
-        first_word = words[0].upper().rstrip(".:,;")
-        if first_word in EXCLUDED_BOILERPLATE and len(words) == 1:
-            return False
-        return True
-        
-    return False
-
-def clean_text_block(text: str) -> str:
-    """Cleans up text whitespace."""
-    return re.sub(r"\s+", " ", text).strip()
-
-class SemanticChunker:
-    def __init__(self, tokenizer: Optional[Any] = None, target_chunk_size: int = 400, overlap_size: int = 50):
-        self.tokenizer = tokenizer
-        self.target_chunk_size = target_chunk_size
-        self.overlap_size = overlap_size
-
-    def count_tokens(self, text: str) -> int:
-        """Counts tokens using tokenizer, or falls back to word count approximation if tokenizer is not available."""
-        if self.tokenizer:
-            try:
-                return len(self.tokenizer.encode(text, add_special_tokens=False))
-            except Exception:
-                pass
-        # Fallback: average english word is ~1.3 tokens
-        return int(len(text.split()) * 1.3)
-
-    def chunk_document(self, blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Processes a list of text blocks from a single document and groups them semantically.
-        
-        Each block is expected to have 'text' and other metadata.
-        """
-        chunks = []
-        buffer_blocks = []
-        buffer_tokens = 0
-        
-        for i, block in enumerate(blocks):
-            text = clean_text_block(block.get("text", ""))
-            if not text:
-                continue
-                
-            block_tokens = self.count_tokens(text)
-            
-            # Check if this block is a heading and we already have content in the buffer
-            if is_heading(text) and buffer_blocks:
-                # Flush the buffer as a completed chunk
-                chunks.append(self._create_chunk_from_buffer(buffer_blocks, blocks[0]))
-                
-                # Keep last few blocks for overlap (approx 50 tokens)
-                buffer_blocks = self._get_overlap_blocks(buffer_blocks)
-                buffer_tokens = sum(self.count_tokens(b["text"]) for b in buffer_blocks)
-            
-            # Add current block to buffer
-            buffer_blocks.append({"text": text, "index": i})
-            buffer_tokens += block_tokens
-            
-            # Flush if the buffer exceeds our target chunk size
-            if buffer_tokens >= self.target_chunk_size:
-                chunks.append(self._create_chunk_from_buffer(buffer_blocks, blocks[0]))
-                buffer_blocks = self._get_overlap_blocks(buffer_blocks)
-                buffer_tokens = sum(self.count_tokens(b["text"]) for b in buffer_blocks)
-                
-        # Flush remaining blocks at the end of the document
-        if buffer_blocks:
-            chunks.append(self._create_chunk_from_buffer(buffer_blocks, blocks[0]))
-            
-        return chunks
-
-    def _create_chunk_from_buffer(self, buffer_blocks: List[Dict[str, Any]], metadata_ref: Dict[str, Any]) -> Dict[str, Any]:
-        """Combines buffer blocks into a single chunk dictionary with aggregated metadata."""
-        combined_text = "\n".join(b["text"] for b in buffer_blocks)
-        
-        # Determine the namespace based on corpus type and title
-        corpus_type = metadata_ref.get("corpus_type_name", "")
-        doc_name = metadata_ref.get("document_name", "")
-        
-        namespace = "international_agreements"
-        if corpus_type == "Laws and Policies":
-            namespace = "national_laws"
-        elif corpus_type == "International Agreements":
-            doc_name_lower = doc_name.lower()
-            if "ndc" in doc_name_lower or "nationally determined contribution" in doc_name_lower:
-                namespace = "ndc_commitments"
-            else:
-                namespace = "international_agreements"
-                
-        pub_ts = metadata_ref.get("publication_ts")
-        pub_year = extract_year_from_ts(pub_ts, doc_name)
-        
-        # Build strict metadata schema
-        chunk_metadata = {
-            "geography_iso": metadata_ref.get("geography_iso", "UNK"),
-            "namespace": namespace,
-            "pub_year": pub_year if pub_year is not None else 2018, # Default to 2018 (IPCC baseline year) rather than 2000 to be neutral for temporal boost
-            "document_name": doc_name,
-            "source_url": metadata_ref.get("source_url", ""),
-            "language": "en"
-        }
-        
-        return {
-            "text": combined_text,
-            "metadata": chunk_metadata
-        }
-
-    def _get_overlap_blocks(self, buffer_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Selects the trailing blocks from the buffer that sum to approximately the overlap size, with size bounds."""
-        overlap_blocks = []
-        current_tokens = 0
-        
-        # Calculate total tokens in buffer to prevent excessive overlap loops
-        total_tokens = sum(self.count_tokens(b["text"]) for b in buffer_blocks)
-        # Cap maximum overlap at 40% of the chunk size
-        max_allowed_overlap_tokens = min(self.overlap_size * 2, int(total_tokens * 0.4))
-        
-        for block in reversed(buffer_blocks):
-            block_tokens = self.count_tokens(block["text"])
-            if current_tokens + block_tokens > max_allowed_overlap_tokens:
-                if overlap_blocks:
-                    break
-                else:
-                    # If this is the only block and it is huge, include it but stop
-                    overlap_blocks.insert(0, block)
-                    break
-            overlap_blocks.insert(0, block)
-            current_tokens += block_tokens
-        return overlap_blocks
-
-def filter_and_stream_dataset(hf_token: Optional[str] = None) -> Generator[Dict[str, Any], None, None]:
-    """Streams the dataset, filters by G20 + English, and yields raw records."""
     from datasets import load_dataset
-    
-    # Load dataset in streaming mode
-    dataset = load_dataset(
-        "ClimatePolicyRadar/all-document-text-data", 
-        split="train", 
-        streaming=True,
-        token=hf_token
-    )
-    
-    print("Scanning dataset stream (filtering for English + G20 documents)...")
-    scanned_count = 0
-    for row in dataset:
-        scanned_count += 1
-        if scanned_count % 10000 == 0:
-            print(f"Scanned {scanned_count} raw text blocks from Hugging Face stream...")
-            
-        # Extract fields from the flattened dataset structure
-        languages = row.get("document_metadata.languages") or []
-        geographies = row.get("document_metadata.geographies") or []
-        
-        # Check if the document language is English (default to True if metadata is empty)
-        is_english = not languages or "en" in languages or any(lang.lower().startswith("en") for lang in languages)
-        
-        # Find matching G20 geography code (e.g. 'USA', 'IND', 'EU')
-        matching_geography = None
-        for geo in geographies:
-            geo_upper = geo.upper()
-            if geo_upper in G20_ISO_CODES:
-                matching_geography = geo_upper
-                break
-                
-        # Keep G20 countries and English language only
-        if is_english and matching_geography:
-            text = row.get("text_block.text") or ""
-            doc_title = row.get("document_metadata.document_title") or row.get("document_metadata.family_title") or "Unknown Document"
-            corpus_type_name = row.get("document_metadata.corpus_type_name") or ""
-            publication_ts = row.get("document_metadata.publication_ts") or ""
-            source_url = row.get("document_metadata.source_url") or ""
-            
-            yield {
-                "text": text,
-                "document_name": doc_title,
-                "corpus_type_name": corpus_type_name,
-                "publication_ts": publication_ts,
-                "geography_iso": matching_geography,
-                "source_url": source_url,
-            }
 
-def process_corpus(hf_token: Optional[str] = None, tokenizer: Optional[Any] = None, max_docs: Optional[int] = None) -> List[Dict[str, Any]]:
-    """
-    Main function to stream the dataset, group blocks by document,
-    and generate semantic chunks.
-    """
-    print("Starting dataset streaming and chunking...")
-    chunker = SemanticChunker(tokenizer=tokenizer)
-    
-    current_doc_name = None
-    current_doc_blocks = []
-    all_chunks = []
-    doc_count = 0
-    
-    for row in filter_and_stream_dataset(hf_token):
-        doc_name = row.get("document_name")
-        if not doc_name:
+    print(f"Loading {dataset_name} from HuggingFace...")
+    dataset = load_dataset(dataset_name, split="train", token=hf_token)
+    print(f"Loaded {len(dataset)} pre-chunked textbook snippets.")
+
+    chunks: List[Dict[str, Any]] = []
+    namespace_counts: Dict[str, int] = {
+        "basic_sciences": 0,
+        "pharmacology": 0,
+        "clinical_medicine": 0,
+    }
+
+    for row in dataset:
+        # MedRAG/textbooks fields: id, title, content / contents
+        text = row.get("contents") or row.get("content") or ""
+        title = row.get("title") or "Unknown Textbook"
+        chunk_id = str(row.get("id") or "")
+
+        if not text.strip():
             continue
-            
-        # Check if we have transitioned to a new document
-        if current_doc_name is not None and doc_name != current_doc_name:
-            # Chunk the completed document
-            doc_chunks = chunker.chunk_document(current_doc_blocks)
-            all_chunks.extend(doc_chunks)
-            doc_count += 1
-            
-            print(f"[{doc_count}] Processed document: {current_doc_name} ({len(doc_chunks)} chunks). Total chunks: {len(all_chunks)}")
-                
-            if max_docs and doc_count >= max_docs:
-                break
-                
-            current_doc_blocks = []
-            
-        current_doc_name = doc_name
-        current_doc_blocks.append(row)
-        
-    # Chunk the last document in the stream
-    if current_doc_blocks and (not max_docs or doc_count < max_docs):
-        doc_chunks = chunker.chunk_document(current_doc_blocks)
-        all_chunks.extend(doc_chunks)
-        doc_count += 1
-        
-    print(f"Ingestion completed. Total processed documents: {doc_count}. Total semantic chunks: {len(all_chunks)}")
-    return all_chunks
+
+        namespace = derive_namespace(title)
+        namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
+
+        chunks.append({
+            "text": text,
+            "metadata": {
+                "document_name":   title,
+                "textbook_title":  title,
+                "chunk_id":        chunk_id,
+                "namespace":       namespace,
+                # Conservative approximation; MedRAG textbooks are ~2018-2022 eds.
+                # Temporal boost will still rank more-recent editions higher if pub_year
+                # metadata ever becomes available per-chunk.
+                "pub_year":        2020,
+                "source_url":      "https://huggingface.co/datasets/MedRAG/textbooks",
+                # geography_iso kept for schema compatibility with ClimateIndexManager;
+                # set to namespace label so calibrate_threshold recall-by-namespace works.
+                "geography_iso":   namespace,
+            }
+        })
+
+    print("Namespace distribution:")
+    for ns, count in namespace_counts.items():
+        print(f"  {ns}: {count} chunks")
+    print(f"Total: {len(chunks)} chunks")
+    return chunks
+
+
+# Entry point: call from indexing.py instead of process_corpus
+def process_corpus(
+    hf_token: Optional[str] = None,
+    **_kwargs,          # absorbs max_docs and tokenizer args for drop-in compatibility
+) -> List[Dict[str, Any]]:
+    """
+    Drop-in replacement for the old ClimateRAG process_corpus.
+    Ignores max_docs because the dataset is bounded and safe to load fully.
+    """
+    return load_medrag_textbooks(hf_token=hf_token)

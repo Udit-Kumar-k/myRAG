@@ -2,18 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import './App.css';
 
-const countryFlags = {
-  ARG: "🇦🇷", AUS: "🇦🇺", BRA: "🇧🇷", CAN: "🇨🇦", CHN: "🇨🇳",
-  DEU: "🇩🇪", FRA: "🇫🇷", GBR: "🇬🇧", IDN: "🇮🇩", IND: "🇮🇳",
-  ITA: "🇮🇹", JPN: "🇯🇵", KOR: "🇰🇷", MEX: "🇲🇽", RUS: "🇷🇺",
-  SAU: "🇸🇦", USA: "🇺🇸", ZAF: "🇿🇦", TUR: "🇹🇷",
-  EU: "🇪🇺", EUR: "🇪🇺", EUE: "🇪🇺"
+const subjectIcons = {
+  basic_sciences:   "🔬",
+  pharmacology:     "💊",
+  clinical_medicine: "🏥",
 };
 
 const namespaceLabels = {
-  national_laws: "National Law",
-  ndc_commitments: "NDC Commitment",
-  international_agreements: "International Treaty"
+  basic_sciences:    "Basic Sciences",
+  pharmacology:      "Pharmacology",
+  clinical_medicine: "Clinical Medicine",
 };
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -29,41 +27,21 @@ function App() {
   const [backendHealthy, setBackendHealthy] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // Monitor Supabase Auth state changes
   useEffect(() => {
-    // Check current active session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setUser(session.user);
-        setToken(session.access_token);
-      }
+      if (session) { setUser(session.user); setToken(session.access_token); }
     });
-
-    // Subscribe to auth state updates
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        setUser(session.user);
-        setToken(session.access_token);
-      } else {
-        setUser(null);
-        setToken(null);
-      }
+      if (session) { setUser(session.user); setToken(session.access_token); }
+      else { setUser(null); setToken(null); }
     });
-
-    return () => {
-      subscription?.unsubscribe();
-    };
+    return () => subscription?.unsubscribe();
   }, []);
 
-  // Check health and load conversations when authenticated
   useEffect(() => {
-    if (user) {
-      checkBackendHealth();
-      startNewConversation();
-    }
+    if (user) { checkBackendHealth(); startNewConversation(); }
   }, [user]);
 
-  // Scroll messages feed
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -71,25 +49,17 @@ function App() {
   const checkBackendHealth = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/health`);
-      if (res.ok) {
-        setBackendHealthy(true);
-      } else {
-        setBackendHealthy(false);
-      }
-    } catch {
-      setBackendHealthy(false);
-    }
+      setBackendHealthy(res.ok);
+    } catch { setBackendHealthy(false); }
   };
 
   const startNewConversation = () => {
     const newId = `conv_${Math.random().toString(36).substring(2, 11)}`;
-    const newConv = {
+    setConversations(prev => [{
       id: newId,
-      title: `Analysis Session ${newId.substring(5, 9).toUpperCase()}`,
+      title: `Session ${newId.substring(5, 9).toUpperCase()}`,
       created: Date.now()
-    };
-    
-    setConversations(prev => [newConv, ...prev]);
+    }, ...prev]);
     setActiveConvId(newId);
     setMessages([]);
   };
@@ -99,51 +69,31 @@ function App() {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/history/${convId}`, {
-        headers: {
-          'Authorization': `Bearer ${token || 'mock-token'}`
-        }
+        headers: { 'Authorization': `Bearer ${token || 'mock-token'}` }
       });
       if (res.ok) {
         const data = await res.json();
         const historyMsgs = [];
         data.history.forEach(item => {
-          if (item.question) {
-            historyMsgs.push({
-              role: 'user',
-              content: item.question
-            });
-          }
-          if (item.answer) {
-            historyMsgs.push({
-              role: 'assistant',
-              content: item.answer,
-              sources: item.sources,
-              confidenceScore: item.confidence_score,
-              refused: item.refused
-            });
-          }
+          if (item.question) historyMsgs.push({ role: 'user', content: item.question });
+          if (item.answer) historyMsgs.push({
+            role: 'assistant', content: item.answer,
+            sources: item.sources, confidenceScore: item.confidence_score, refused: item.refused
+          });
         });
         setMessages(historyMsgs);
-      } else {
-        setMessages([]);
-      }
-    } catch (e) {
-      console.error("Failed to load chat history:", e);
-      setMessages([]);
-    } finally {
-      setLoading(false);
-    }
+      } else { setMessages([]); }
+    } catch (e) { console.error(e); setMessages([]); }
+    finally { setLoading(false); }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputValue.trim() || loading) return;
-
     const userText = inputValue;
     setInputValue('');
     setMessages(prev => [...prev, { role: 'user', content: userText }]);
     setLoading(true);
-
     try {
       const res = await fetch(`${API_BASE_URL}/query`, {
         method: 'POST',
@@ -151,76 +101,48 @@ function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token || 'mock-token'}`
         },
-        body: JSON.stringify({
-          question: userText,
-          conversation_id: activeConvId
-        })
+        body: JSON.stringify({ question: userText, conversation_id: activeConvId })
       });
-
       if (res.ok) {
         const data = await res.json();
         setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.answer,
-          sources: data.sources,
-          confidenceScore: data.confidence_score,
-          refused: data.refused
+          role: 'assistant', content: data.answer,
+          sources: data.sources, confidenceScore: data.confidence_score, refused: data.refused
         }]);
       } else {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: "System error: Failed to connect to ClimateRAG backend service.",
-          refused: true,
-          confidenceScore: 0
+          content: "System error: Failed to connect to MedRAG backend.",
+          refused: true, confidenceScore: 0
         }]);
       }
     } catch (err) {
-      console.error(err);
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: "Network error: Make sure the FastAPI server is running on port 8000.",
-        refused: true,
-        confidenceScore: 0
+        refused: true, confidenceScore: 0
       }]);
-    } finally {
-      setLoading(false);
-      checkBackendHealth();
-    }
+    } finally { setLoading(false); checkBackendHealth(); }
   };
 
   const handleSignInGoogle = async () => {
     try {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
+        options: { redirectTo: window.location.origin }
       });
-    } catch (err) {
-      console.error("Supabase OAuth sign-in failed:", err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const handleBypassAuth = () => {
-    // Development bypass
-    setUser({
-      id: "00000000-0000-0000-0000-000000000000",
-      email: "dev@climaterag.local",
-      user_metadata: { full_name: "Development User" }
-    });
+    setUser({ id: "00000000-0000-0000-0000-000000000000", email: "dev@medrag.local", user_metadata: { full_name: "Development User" } });
     setToken("mock-token");
   };
 
   const handleSignOut = async () => {
-    if (token === "mock-token") {
-      setUser(null);
-      setToken(null);
-    } else {
-      await supabase.auth.signOut();
-    }
-    setConversations([]);
-    setActiveConvId('');
-    setMessages([]);
+    if (token === "mock-token") { setUser(null); setToken(null); }
+    else { await supabase.auth.signOut(); }
+    setConversations([]); setActiveConvId(''); setMessages([]);
   };
 
   const getConfidenceClass = (score) => {
@@ -229,34 +151,25 @@ function App() {
     return 'confidence-red';
   };
 
-  const hasPre2018Citations = (sources) => {
-    if (!sources) return false;
-    return sources.some(src => src.pub_year < 2018);
-  };
-
-  // -------------------------------------------------------------
-  // RENDERING AUTHENTICATION GATES
-  // -------------------------------------------------------------
+  // ── Auth Gate ─────────────────────────────────────────────────────────────
   if (!user) {
     return (
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        padding: '1.5rem',
-        backgroundImage: 'radial-gradient(at 0% 0%, hsla(150, 70%, 42%, 0.08) 0px, transparent 50%), radial-gradient(at 100% 0%, hsla(205, 80%, 50%, 0.08) 0px, transparent 50%)'
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', padding: '1.5rem',
+        backgroundImage: 'radial-gradient(at 0% 0%, hsla(210, 80%, 50%, 0.08) 0px, transparent 50%), radial-gradient(at 100% 0%, hsla(270, 75%, 65%, 0.08) 0px, transparent 50%)'
       }}>
         <div className="card-glass" style={{ maxWidth: '420px', width: '100%', textAlign: 'center', padding: '2.5rem 2rem' }}>
-          <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>🌱</div>
+          <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>🩺</div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '2rem', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-            ClimateRAG
+            MedRAG
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: 1.5 }}>
-            Sign in to access the G20 Climate Commitments Analyst portal and query legal country targets.
+            Medical Textbook Knowledge Assistant — grounded answers from 18 authoritative textbooks including Harrison's, Robbins, and Goodman & Gilman's.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <button className="btn-primary" onClick={handleSignInGoogle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
+            <button className="btn-primary" onClick={handleSignInGoogle}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                 <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -265,11 +178,8 @@ function App() {
               </svg>
               Sign In with Google
             </button>
-            <button 
-              className="conv-item" 
-              onClick={handleBypassAuth}
-              style={{ padding: '0.75rem', fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-secondary)' }}
-            >
+            <button className="conv-item" onClick={handleBypassAuth}
+              style={{ padding: '0.75rem', fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               🔒 Bypass Auth (Local Development)
             </button>
           </div>
@@ -278,26 +188,22 @@ function App() {
     );
   }
 
-  // -------------------------------------------------------------
-  // MAIN APPLICATION PORTAL
-  // -------------------------------------------------------------
+  // ── Main App ─────────────────────────────────────────────────────────────
   return (
     <div className="app-container">
       <header className="header">
         <div className="logo-section">
-          <h1>ClimateRAG</h1>
-          <p>Verified G20 Climate Commitments Analyst</p>
+          <h1>MedRAG</h1>
+          <p>Medical Textbook Knowledge Assistant</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div className="status-badge">
-            <span className="status-indicator" style={{ backgroundColor: backendHealthy ? 'var(--primary)' : 'var(--accent-red)' }} />
-            <span>{backendHealthy ? 'Secure Gateway Online' : 'Gateway Offline'}</span>
+            <span className="status-indicator"
+              style={{ backgroundColor: backendHealthy ? 'var(--primary)' : 'var(--accent-red)' }} />
+            <span>{backendHealthy ? 'Retrieval Engine Online' : 'Engine Offline'}</span>
           </div>
-          <button 
-            onClick={handleSignOut} 
-            className="conv-item"
-            style={{ padding: '0.45rem 1rem', fontSize: '0.8rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-full)' }}
-          >
+          <button onClick={handleSignOut} className="conv-item"
+            style={{ padding: '0.45rem 1rem', fontSize: '0.8rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-full)' }}>
             Sign Out
           </button>
         </div>
@@ -305,7 +211,7 @@ function App() {
 
       <aside className="sidebar">
         <button className="btn-primary" onClick={startNewConversation}>
-          <span>+</span> New Analysis Session
+          <span>+</span> New Session
         </button>
 
         <div className="card-glass">
@@ -324,12 +230,12 @@ function App() {
         </div>
 
         <div className="card-glass" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-          <h3>G20 Commitments Scope</h3>
+          <h3>MedRAG Scope</h3>
           <p style={{ marginBottom: '0.5rem' }}>
             Authenticated as: <strong style={{ color: 'var(--text-primary)' }}>{user.user_metadata?.full_name || user.email}</strong>
           </p>
           <p style={{ marginBottom: '0.5rem' }}>
-            Answers are grounded in indexed legislation, NDCs, and international climate agreements from 20 largest emitters.
+            Answers are grounded in 18 indexed medical textbooks covering basic sciences, pharmacology, and clinical medicine.
           </p>
           <p>Confidence gate calibration is enforced to ensure factual correctness and refuse un-grounded claims.</p>
         </div>
@@ -339,27 +245,27 @@ function App() {
         <div className="messages-container">
           {messages.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-icon">🌱</div>
-              <h3>G20 Climate Commitment Analyst</h3>
+              <div className="empty-state-icon">🩺</div>
+              <h3>Medical Textbook Knowledge Assistant</h3>
               <p style={{ marginBottom: '1.5rem' }}>
-                Ask questions regarding legal carbon targets, NDCs, or local climate protection acts of G20 emitters.
+                Ask questions about anatomy, pharmacology, pathology, or clinical medicine — grounded in authoritative textbooks.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', maxWidth: '400px' }}>
-                <button className="conv-item" onClick={() => setInputValue("What is India's 2030 emissions intensity reduction target?")}>
-                  💡 India's 2030 emissions intensity target?
+                <button className="conv-item" onClick={() => setInputValue("What enzyme catalyzes the rate-limiting step of glycolysis?")}>
+                  🔬 Rate-limiting enzyme of glycolysis?
                 </button>
-                <button className="conv-item" onClick={() => setInputValue("Compare the carbon neutrality target years of China and India.")}>
-                  💡 Compare carbon neutrality years (China & India)?
+                <button className="conv-item" onClick={() => setInputValue("What is the mechanism of action of metformin in type 2 diabetes?")}>
+                  💊 Mechanism of action of metformin?
                 </button>
-                <button className="conv-item" onClick={() => setInputValue("Does Germany's Climate Protection Act match its NDC?")}>
-                  💡 Does Germany's climate law match its NDC?
+                <button className="conv-item" onClick={() => setInputValue("A 55-year-old man presents with crushing substernal chest pain and ST elevation in leads II, III, and aVF. Which coronary artery is most likely occluded?")}>
+                  🏥 Inferior MI — which artery is occluded?
                 </button>
               </div>
             </div>
           ) : (
             messages.map((msg, index) => (
               <div key={index} className={`message-bubble ${msg.role === 'user' ? 'message-user' : 'message-assistant'}`}>
-                <h4>{msg.role === 'user' ? 'G20 Query' : 'Verified Response'}</h4>
+                <h4>{msg.role === 'user' ? 'Medical Query' : 'Textbook Response'}</h4>
                 <div>
                   {msg.role === 'assistant' && msg.refused ? (
                     <div className="refusal-card">
@@ -367,8 +273,8 @@ function App() {
                         <span>⚠️</span> Insufficient Grounding Evidence
                       </div>
                       <p>{msg.content}</p>
-                      <a href="https://unfccc.int/NDCREG" target="_blank" rel="noopener noreferrer" className="refusal-link">
-                        Search Official UNFCCC NDC Registry &rarr;
+                      <a href="https://www.ncbi.nlm.nih.gov/books/" target="_blank" rel="noopener noreferrer" className="refusal-link">
+                        Search NCBI Medical Bookshelf &rarr;
                       </a>
                     </div>
                   ) : (
@@ -378,40 +284,29 @@ function App() {
 
                 {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
                   <div className="citations-section">
-                    {hasPre2018Citations(msg.sources) && (
-                      <div className="warning-banner">
-                        <span className="warning-icon">⚠️</span>
-                        <div>
-                          <strong>Temporal Baseline Warning:</strong> One or more cited sources predate the 2018 IPCC Special Report (1.5°C). Climate targets may have been updated since.
-                          <br />
-                          <a href="https://unfccc.int/NDCREG" target="_blank" rel="noreferrer">Check UNFCCC NDC Registry for updates</a>
-                        </div>
-                      </div>
-                    )}
-
-                    <h5>Grounded Citations</h5>
+                    <h5>Textbook Citations</h5>
                     <div className="citations-grid">
                       {msg.sources.map((src, i) => (
                         <div key={i} className="citation-card">
                           <div className="citation-header">
                             <span className="country-badge">
-                              {countryFlags[src.geography_iso] || "🏳️"} {src.geography_iso}
+                              {subjectIcons[src.namespace] || "📚"} {namespaceLabels[src.namespace] || src.namespace}
                             </span>
                             <span className={`namespace-badge namespace-${src.namespace}`}>
                               {namespaceLabels[src.namespace] || src.namespace}
                             </span>
                           </div>
-                          <a 
-                            href={src.source_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
+                          <a
+                            href={src.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="citation-title"
                             title={src.document_name}
                           >
                             {src.document_name}
                           </a>
                           <div className="citation-footer">
-                            <span>Published: {src.pub_year}</span>
+                            <span>Textbook</span>
                             <span className="match-score">{(src.relevance_score * 100).toFixed(0)}% Match</span>
                           </div>
                         </div>
@@ -427,7 +322,7 @@ function App() {
                       <span>{(msg.confidenceScore * 100).toFixed(0)}%</span>
                     </div>
                     <div className="confidence-bar-outer">
-                      <div 
+                      <div
                         className={`confidence-bar-inner ${getConfidenceClass(msg.confidenceScore)}`}
                         style={{ width: `${msg.confidenceScore * 100}%` }}
                       />
@@ -440,12 +335,12 @@ function App() {
 
           {loading && (
             <div className="message-bubble message-assistant" style={{ alignSelf: 'flex-start' }}>
-              <h4>Verified Response</h4>
+              <h4>Textbook Response</h4>
               <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', padding: '0.5rem 0' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)', animation: 'pulse 1.2s infinite' }} />
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)', animation: 'pulse 1.2s infinite 0.2s' }} />
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)', animation: 'pulse 1.2s infinite 0.4s' }} />
-                <span style={{ marginLeft: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Retrieving and verifying sources...</span>
+                <span style={{ marginLeft: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Retrieving and verifying textbook sources...</span>
               </div>
             </div>
           )}
@@ -457,7 +352,7 @@ function App() {
             <input
               type="text"
               className="chat-input"
-              placeholder="Ask about G20 climate legislation or NDC targets..."
+              placeholder="Ask about anatomy, pharmacology, or clinical medicine..."
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               disabled={loading}

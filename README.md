@@ -1,65 +1,82 @@
-# ClimateRAG — G20 Climate Commitments Analyst
+# MedRAG — Medical Textbook RAG System
 
-ClimateRAG is a production-grade Retrieval-Augmented Generation (RAG) system that answers questions about what the world's 20 largest economies (responsible for ~80% of global emissions) have legally committed to on climate change. Every answer is grounded in official, indexed national legislation, NDC submissions, and international agreements.
+MedRAG is a production-grade Retrieval-Augmented Generation system grounded in 18 authoritative medical textbooks. It answers clinical and biomedical questions with document-grounded responses from sources including Harrison's Principles of Internal Medicine, Goodman & Gilman's Pharmacology, Robbins Pathology, and Gray's Anatomy.
+
+**Why RAG over a plain LLM?** LLMs confidently hallucinate specific drug dosages, diagnostic criteria thresholds, and anatomical relationships. MedRAG grounds every answer in actual textbook text, refuses when retrieval confidence falls below a calibrated gate, and cites the source textbook.
 
 ---
 
-## 🏛️ System Architecture
-
-The following diagram illustrates the ClimateRAG multi-stage retrieval pipeline:
+## System Architecture
 
 ```mermaid
 graph TD
-    Query[User Query] --> Router{Query Router}
-    
-    Router -->|Laws & Policies| laws[national_laws namespace]
-    Router -->|NDCs| ndc[ndc_commitments namespace]
-    Router -->|Treaties| int[international_agreements namespace]
-    Router -->|General/Tie| all[Search All Namespaces]
+    Query[User Query] --> Router{Subject Router}
 
-    laws & ndc & int & all --> Dense[Dense Search: FAISS + BGE-M3]
-    laws & ndc & int & all --> Sparse[Sparse Search: BM25]
+    Router -->|Anatomy / Physiology / Biochemistry| basic[basic_sciences namespace]
+    Router -->|Drug / Pathology / Microbiology| pharma[pharmacology namespace]
+    Router -->|Patient / Diagnosis / Treatment| clin[clinical_medicine namespace]
+    Router -->|General / Tie| all[Search All Namespaces]
 
-    Dense --> RRF[Reciprocal Rank Fusion RRF]
+    basic & pharma & clin & all --> Dense[Dense Search: FAISS + BGE-M3]
+    basic & pharma & clin & all --> Sparse[Sparse Search: BM25]
+
+    Dense --> RRF[Reciprocal Rank Fusion k=60]
     Sparse --> RRF
-    
-    RRF --> Boost[Temporal Weight Boosting]
-    Boost --> Rerank[Cross-Encoder Reranker: bge-reranker-v2-m3]
-    
-    Rerank --> Gate{Confidence Gate <br> Threshold: 0.65}
-    
-    Gate -->|Pass| LLM[LangChain + Gemma 4 31B]
+
+    RRF --> Boost[Edition Temporal Boost]
+    Boost --> Rerank[Cross-Encoder: bge-reranker-v2-m3]
+
+    Rerank --> Gate{Confidence Gate\nThreshold: 0.65}
+
+    Gate -->|Pass| LLM[LangChain + Groq / Gemini]
     Gate -->|Fail| Refuse[Structured Refusal Card]
-    
-    LLM --> Answer[Grounded Answer + Citations]
+
+    LLM --> Answer[Grounded Answer + Textbook Citations]
 ```
 
 ---
 
-## 📂 Project Structure
+## Dataset
+
+**MedRAG/textbooks** (HuggingFace): 18 widely-used medical textbooks, **125,847 pre-chunked snippets**, average 182 tokens per chunk. Processed by the MedRAG paper authors using LangChain `RecursiveCharacterTextSplitter`. No custom chunking required — zero chunking risk.
+
+Namespaces assigned by textbook title keyword matching:
+
+| Namespace | Coverage |
+|---|---|
+| `basic_sciences` | Gray's Anatomy, Guyton Physiology, Biochemistry, Genetics, Histology |
+| `pharmacology` | Goodman & Gilman, Katzung, Robbins Pathology, Jawetz Microbiology |
+| `clinical_medicine` | Harrison's, First Aid USMLE, Surgery, Pediatrics, Psychiatry |
+
+---
+
+## Project Structure
 
 ```
 myRAG/
 ├── data/
-│   ├── raw/                  # Streamed dataset cache
 │   ├── indexes/              # FAISS and BM25 local index binary files
-│   ├── eval_set.json         # Labeled 60-query evaluation set
+│   ├── eval_set.json         # Labeled 20-query USMLE-style evaluation set
 │   └── eval_results.json     # Saved evaluation metrics log
 ├── src/
-│   ├── backend/
-│   │   ├── ingestion.py      # G20 filters and semantic grouping boundary chunking
-│   │   ├── indexing.py       # FAISS dense index + BM25 sparse index setup
-│   │   ├── retrieval.py      # Intent router, RRF, temporal weights, reranker, gate
-│   │   ├── chain.py          # Gemini Gemma 4 model integration & prompt constraints
-│   │   ├── main.py           # FastAPI server with mock and real auth handlers
-│   │   └── fine_tune.py      # Embedding contrastive triplet fine-tuning script
-│   └── frontend/
-│       ├── src/
-│       │   ├── App.jsx       # Chat window, warning banners, citations, meters
-│       │   └── App.css       # Premium glassmorphic styling sheet
-│       └── index.html        # Fonts, HTML header, and meta SEO tags
+│   └── backend/
+│       ├── ingestion.py      # MedRAG/textbooks HuggingFace loader + namespace mapper
+│       ├── indexing.py       # FAISS dense index + BM25 sparse index setup
+│       ├── retrieval.py      # Subject router, RRF, temporal weights, reranker, gate
+│       ├── chain.py          # Gemini/Groq LLM integration & medical prompt constraints
+│       ├── eval.py           # USMLE evaluation harness with keyword-based recall
+│       ├── main.py           # FastAPI server with mock and real auth handlers
+│       ├── fine_tune.py      # Embedding contrastive triplet fine-tuning script
+│       └── schema.sql        # Supabase DB schema for conversation persistence
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx           # Medical chat UI, citations, confidence meters
+│   │   └── App.css           # Premium glassmorphic styling sheet
+│   └── index.html            # Fonts, HTML header, and meta SEO tags
+├── eval/
+│   └── calibrate_threshold.py # Confidence gate F1-sweep calibration
 ├── tests/
-│   ├── test_router.py        # Keyword namespace classifier tests
+│   ├── test_router.py        # Medical namespace classifier tests
 │   ├── test_retrieval.py     # RRF rankings and confidence gate tests
 │   └── test_integration.py   # FastAPI web clients routes tests
 ├── .github/
@@ -71,72 +88,52 @@ myRAG/
 
 ---
 
-## 🚀 Quick Start Guide
+## Evaluation
 
-### 1. Environment Setup
+**Benchmark:** USMLE-style questions (20-question hardcoded set + optional MedQA extension via `build_eval_from_medqa()`).
 
-Clone the repository and install the backend requirements:
+**Context Recall:** ground-truth keywords from the correct answer must appear in at least one retrieved chunk. More meaningful than a country-ISO proxy — directly verifies the retrieved passage covers the medically correct concept.
+
+**RAGAS Faithfulness:** LLM answer must be grounded in retrieved context (threshold: 0.75 in CI gate).
+
+**Confidence Calibration:** gate trained to pass medical queries, block out-of-scope queries (cooking, geography, trivia).
+
+---
+
+## Quick Start
+
 ```bash
-# Install Python packages
+# 1. Install
 pip install -r requirements.txt
-```
 
-Create a `.env` file in the project root:
-```env
-GEMINI_API_KEY=your_google_ai_studio_api_key_here
-HF_TOKEN=your_huggingface_token_here
-SUPABASE_URL=your_supabase_project_url_here
-SUPABASE_ANON_KEY=your_supabase_anon_key_here
-SUPABASE_SERVICE_KEY=your_supabase_service_role_key_here
-DATABASE_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
-MOCK_AUTH=true # Bypasses live Supabase OAuth verification check for local testing
-CONFIDENCE_THRESHOLD=0.65
-```
+# 2. Configure
+cp .env.template .env   # fill in GROQ_API_KEY or GEMINI_API_KEY
 
-### 2. Database Initialization
-Before running the backend, navigate to the Supabase Dashboard SQL Editor and execute the schema initialization script located at [schema.sql](file:///C:/RAGprjt/myRAG/src/backend/schema.sql) to create the tables, indexes, and RLS policies.
-
-### 2. Stream Data and Build Indexes
-
-Run the ingestion and index compilation script:
-```bash
-# Run step-by-step pipeline index generation
+# 3. Download + index (batch_size=32 for RTX 2050 / 4 GB VRAM)
 python -m src.backend.indexing
-```
 
-### 3. Run FastAPI Backend Server
-
-Launch the Uvicorn web gateway:
-```bash
-# Starts server at http://localhost:8000
+# 4. Backend
 python -m uvicorn src.backend.main:app --reload
-```
 
-### 4. Setup and Run React Frontend
-
-Navigate to the frontend folder, install packages, and start Vite development server:
-```bash
-cd frontend
-npm install
-npm run dev
+# 5. Frontend
+cd frontend && npm install && npm run dev
 ```
 
 ---
 
-## 🔍 Core Engineering Solutions
+## Core Engineering Solutions
 
-### 1. Semantic Chunk Grouping
-Standard chunking chops text indiscriminately. ClimateRAG groups text blocks sequentially, detecting headers (short strings, all-caps or title-case) to trigger context flushes. This maintains logical paragraph bounds and improves context recall.
+### 1. Zero-Chunking Ingestion
+The MedRAG dataset ships pre-chunked to ≤1000 chars by the original paper authors. Ingestion is a direct `load_dataset` call — no chunking pipeline, no heading-detection logic, no redo risk.
 
 ### 2. Dual Indexing & RRF
-Official climate policy text contains exact phrases (e.g., "Paris Agreement Article 6", specific reduction figures like "45%"). We merge dense embeddings (capturing meaning) and BM25 keywords (matching figures) using Reciprocal Rank Fusion ($k=60$).
+Medical text contains exact drug names, dosage values, and diagnostic thresholds that dense embeddings alone may miss. BM25 catches exact-match terms ("450 mg", "QTc prolongation"); dense vectors capture semantic similarity. RRF (k=60) merges both lists.
 
-### 3. Temporal Boosting
-To ensure updated target pledges are retrieved over stale baselines, RRF scores are adjusted by a year boost:
-$$\text{Score} = \text{RRF\_Score} + 0.1 \times \frac{\text{pub\_year} - 1990}{2026 - 1990}$$
+### 3. Subject Namespace Routing
+Three namespaces (basic sciences / pharmacology / clinical medicine) allow subject-specific retrieval for focused queries. Ambiguous and USMLE patient-scenario queries fall back to searching all namespaces — the correct behavior for multi-domain clinical questions.
 
 ### 4. Cross-Encoder Reranking & Calibrated Gate
-Top 20 candidates undergo cross-encoder processing via `BAAI/bge-reranker-v2-m3` to obtain precise score matches. The top relevance score determines the confidence. If this score is $< 0.65$ (calibrated via F1 sweep on the 60-query validation set), the system refuses to avoid hallucinations.
+Top-20 candidates are reranked via `bge-reranker-v2-m3`. The top sigmoid-normalized score becomes the confidence. Below 0.65 (calibrated on the USMLE eval set vs non-medical out-of-scope queries), the system refuses — preventing hallucinated drug dosages from reaching the user.
 
-### 5. Triplets Embedding Fine-Tuning
-Base BGE-M3 struggles with temporal versioning (e.g., 2015 NDC vs 2022 updated NDC). The `src/backend/fine_tune.py` script constructs contrastive triplet sets (`query`, `positive target`, `older year target` as hard negative) and runs contrastive training using MultipleNegativesRankingLoss.
+### 5. Contrastive Embedding Fine-Tuning
+Base BGE-M3 may not distinguish between similar drug mechanisms or anatomical terms. `fine_tune.py` constructs triplets (query, correct textbook passage, semantically similar but incorrect passage as hard negative) and trains with MultipleNegativesRankingLoss.

@@ -16,26 +16,26 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.backend.eval import EVAL_QUERIES
 
 OUT_OF_SCOPE_QUERIES = [
-    "Who is the current prime minister of the United Kingdom?",
-    "What is the capital city of Australia?",
-    "How do you bake a sourdough bread at home?",
-    "What are the symptoms of common cold?",
-    "Explain the theory of general relativity by Einstein.",
-    "What is the stock price of Apple today?",
+    "What is the capital of France?",
     "Who won the FIFA World Cup in 2022?",
-    "What is the population of Tokyo?",
-    "How does a database transaction index work?",
+    "What is the stock price of Apple today?",
+    "Write a Python function to reverse a string.",
     "What are the best tourist spots in Italy?",
-    "How do you write a quicksort algorithm in Python?",
-    "What is the formula for calculating compound interest?",
-    "Who is the author of Harry Potter books?",
-    "What is the distance between Earth and Mars?",
-    "How do you clean a laptop keyboard safely?",
+    "Explain the theory of general relativity.",
     "What is the history of the Eiffel Tower?",
+    "Who is the current prime minister of the United Kingdom?",
+    "How do I make sourdough bread at home?",
+    "What is the GDP of China?",
     "Explain the rules of cricket.",
-    "What are the benefits of cardiovascular exercise?",
+    "Who wrote the Harry Potter books?",
+    "What is the distance between Earth and Moon?",
     "How does a nuclear power plant generate electricity?",
-    "What are the primary colors in painting?"
+    "What is the formula for compound interest?",
+    "What programming language should I learn first?",
+    "What are the best movies of 2024?",
+    "How do I fix a leaking pipe?",
+    "What is the plot of Breaking Bad?",
+    "What is the weather in Tokyo today?",
 ]
 
 def run_real_calibration() -> List[Dict[str, Any]]:
@@ -74,7 +74,7 @@ def run_real_calibration() -> List[Dict[str, Any]]:
 def main():
     print("=== ClimateRAG Confidence Threshold Calibration ===")
     
-    index_exists = os.path.exists("data/indexes/national_laws_chunks.pkl")
+    index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
     if not index_exists:
         raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
         

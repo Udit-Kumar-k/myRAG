@@ -16,7 +16,7 @@ class ClimateIndexManager:
     def __init__(self, index_dir: str = "data/indexes", model_name: str = "BAAI/bge-m3"):
         self.index_dir = index_dir
         self.model_name = model_name
-        self.namespaces = ["national_laws", "ndc_commitments", "international_agreements"]
+        self.namespaces = ["basic_sciences", "pharmacology", "clinical_medicine"]
         
         # In-memory storage for loaded indexes
         self.chunks: Dict[str, List[Dict[str, Any]]] = {}
@@ -47,8 +47,8 @@ class ClimateIndexManager:
             if ns in ns_chunks:
                 ns_chunks[ns].append(chunk)
             else:
-                # Fallback to international_agreements if namespace is unrecognized
-                ns_chunks["international_agreements"].append(chunk)
+                # Fallback to clinical_medicine if namespace is unrecognized
+                ns_chunks["clinical_medicine"].append(chunk)
 
         model = self.load_embedding_model()
         import faiss
@@ -147,28 +147,24 @@ class ClimateIndexManager:
 if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
-    
-    from src.backend.ingestion import process_corpus
-    
-    print("=== ClimateRAG Index Generation Pipeline ===")
-    
-    # Get HF token if set in environment
+
+    from src.backend.ingestion import process_corpus  # now loads MedRAG/textbooks
+
+    print("=== MedRAG Index Generation Pipeline ===")
+
     hf_token = os.environ.get("HF_TOKEN")
     if hf_token == "your_huggingface_token_here" or not hf_token:
         hf_token = None
-        
+
     try:
-        # Stream the dataset, group text blocks, and compile chunks
-        # Process all G20 documents in the dataset
-        chunks = process_corpus(hf_token=hf_token, max_docs=None)
-        
+        chunks = process_corpus(hf_token=hf_token)
         if not chunks:
-            print("No chunks generated. Check dataset access or country filters.")
+            print("No chunks generated. Check dataset access.")
         else:
-            print(f"Generated {len(chunks)} semantic chunks. Compiling indexes...")
-            # Build and save indexes
+            print(f"Generated {len(chunks)} chunks. Building indexes...")
+            # Drop batch_size to 32 for RTX 2050 (4 GB VRAM)
             manager = ClimateIndexManager()
-            manager.build_indexes(chunks)
+            manager.build_indexes(chunks, batch_size=32)
             print("=== Index Generation Complete ===")
     except Exception as e:
-        print(f"Error during index compilation: {e}")
+        print(f"Error: {e}")
