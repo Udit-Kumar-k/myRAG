@@ -9,17 +9,32 @@ G20_ISO_CODES = {
     "EU", "EUR", "EUE" # Supporting variations of European Union
 }
 
-def extract_year_from_ts(ts: Optional[str]) -> Optional[int]:
-    """Extracts the publication year from the ISO timestamp string."""
-    if not ts:
-        return None
-    try:
-        # Match a 4 digit year at the start of the string
-        match = re.match(r"^(\d{4})", ts)
-        if match:
-            return int(match.group(1))
-    except Exception:
-        pass
+def extract_year_from_ts(ts: Optional[str], doc_name: Optional[str] = None) -> Optional[int]:
+    """
+    Extracts the publication year from the ISO timestamp string,
+    falling back to scanning the document name if the timestamp is missing or unparseable.
+    """
+    if ts:
+        try:
+            # Match any 4 digit year anywhere in the timestamp
+            match = re.search(r"\b(\d{4})\b", ts)
+            if match:
+                year = int(match.group(1))
+                if 1950 <= year <= 2030:
+                    return year
+        except Exception:
+            pass
+            
+    # Fallback: scan document name for a 4-digit year
+    if doc_name:
+        try:
+            matches = re.findall(r"\b(\d{4})\b", doc_name)
+            for m in matches:
+                year = int(m)
+                if 1990 <= year <= 2030:
+                    return year
+        except Exception:
+            pass
     return None
 
 def is_heading(text: str) -> bool:
@@ -27,17 +42,51 @@ def is_heading(text: str) -> bool:
     Determines if a block is likely a heading:
     - Under 15 words
     - Title Case or ALL CAPS
+    - Excludes single-word legal boilerplate (e.g. 'WHEREAS', 'AND', country names)
+    - Or matches structured section headers (e.g. 'Article 1', 'Section 2')
     """
     words = text.strip().split()
     if not words or len(words) >= 15:
         return False
-    
+        
     clean_text = text.strip()
-    # Check for title case or all caps
+    
+    # Common legal boilerplate that are NOT section headers
+    EXCLUDED_BOILERPLATE = {
+        "WHEREAS", "AND", "OR", "BUT", "THEREFORE", "NOTING", "RECALLING", 
+        "HAVING", "ADOPTS", "DECIDES", "REQUESTS", "URGES", "WELCOMES", 
+        "AGREES", "ANNEX", "SCHEDULE", "CHAPTER", "PART", "SECTION", "ARTICLE",
+        "ARGENTINA", "AUSTRALIA", "BRAZIL", "CANADA", "CHINA", "GERMANY",
+        "FRANCE", "INDIA", "INDONESIA", "ITALY", "JAPAN", "MEXICO", "RUSSIA",
+        "TURKEY", "EUROPEAN", "UNION"
+    }
+    
+    # If it is a single word, check if it's in the excluded list or is too short
+    if len(words) == 1:
+        word_upper = words[0].upper().rstrip(".:,;")
+        if word_upper in EXCLUDED_BOILERPLATE or len(word_upper) <= 2:
+            return False
+            
+    # Structured patterns (e.g. "Article 6", "Section 1.2", "Decision 1/CP.21")
+    structured_pattern = re.match(
+        r"^(article|section|chapter|decision|part|annex|clause|paragraph|target)\s+\d+", 
+        clean_text.lower()
+    )
+    if structured_pattern:
+        return True
+        
     is_caps = clean_text.isupper()
     is_title = clean_text.istitle()
     
-    return is_caps or is_title
+    # If it is Title Case or ALL CAPS, make sure it is not just legal boilerplate
+    if is_caps or is_title:
+        # Check if the first word is boilerplate
+        first_word = words[0].upper().rstrip(".:,;")
+        if first_word in EXCLUDED_BOILERPLATE and len(words) == 1:
+            return False
+        return True
+        
+    return False
 
 def clean_text_block(text: str) -> str:
     """Cleans up text whitespace."""
@@ -113,19 +162,20 @@ class SemanticChunker:
         if corpus_type == "Laws and Policies":
             namespace = "national_laws"
         elif corpus_type == "International Agreements":
-            if "ndc" in doc_name.lower():
+            doc_name_lower = doc_name.lower()
+            if "ndc" in doc_name_lower or "nationally determined contribution" in doc_name_lower:
                 namespace = "ndc_commitments"
             else:
                 namespace = "international_agreements"
                 
         pub_ts = metadata_ref.get("publication_ts")
-        pub_year = extract_year_from_ts(pub_ts)
+        pub_year = extract_year_from_ts(pub_ts, doc_name)
         
         # Build strict metadata schema
         chunk_metadata = {
             "geography_iso": metadata_ref.get("geography_iso", "UNK"),
             "namespace": namespace,
-            "pub_year": pub_year if pub_year is not None else 2000, # default to 2000 if missing
+            "pub_year": pub_year if pub_year is not None else 2018, # Default to 2018 (IPCC baseline year) rather than 2000 to be neutral for temporal boost
             "document_name": doc_name,
             "source_url": metadata_ref.get("source_url", ""),
             "language": "en"
@@ -137,13 +187,24 @@ class SemanticChunker:
         }
 
     def _get_overlap_blocks(self, buffer_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Selects the trailing blocks from the buffer that sum to approximately the overlap size."""
+        """Selects the trailing blocks from the buffer that sum to approximately the overlap size, with size bounds."""
         overlap_blocks = []
         current_tokens = 0
+        
+        # Calculate total tokens in buffer to prevent excessive overlap loops
+        total_tokens = sum(self.count_tokens(b["text"]) for b in buffer_blocks)
+        # Cap maximum overlap at 40% of the chunk size
+        max_allowed_overlap_tokens = min(self.overlap_size * 2, int(total_tokens * 0.4))
+        
         for block in reversed(buffer_blocks):
             block_tokens = self.count_tokens(block["text"])
-            if current_tokens + block_tokens > self.overlap_size and overlap_blocks:
-                break
+            if current_tokens + block_tokens > max_allowed_overlap_tokens:
+                if overlap_blocks:
+                    break
+                else:
+                    # If this is the only block and it is huge, include it but stop
+                    overlap_blocks.insert(0, block)
+                    break
             overlap_blocks.insert(0, block)
             current_tokens += block_tokens
         return overlap_blocks

@@ -1,3 +1,7 @@
+import os
+# Prevent connection failures to database placeholders during tests
+os.environ["DATABASE_URL"] = ""
+
 import unittest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
