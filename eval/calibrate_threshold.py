@@ -41,14 +41,14 @@ OUT_OF_SCOPE_QUERIES = [
 def run_real_calibration() -> List[Dict[str, Any]]:
     """Runs queries through the actual pipeline and collects confidence scores."""
     print("Running calibration using actual indexed RAG pipeline...")
-    from src.backend.indexing import ClimateIndexManager
-    from src.backend.retrieval import ClimateRAGPipeline
+    from src.backend.indexing import MedicalIndexManager
+    from src.backend.retrieval import MedicalRAGPipeline
     
-    index_manager = ClimateIndexManager()
+    index_manager = MedicalIndexManager()
     if not index_manager.load_indexes():
         raise ValueError("Failed to load indexes. Build them first.")
         
-    pipeline = ClimateRAGPipeline(index_manager, confidence_threshold=0.0) # threshold 0 to get all scores
+    pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=0.0) # threshold 0 to get all scores
     
     records = []
     print("Running in-scope queries...")
@@ -72,7 +72,7 @@ def run_real_calibration() -> List[Dict[str, Any]]:
     return records
 
 def main():
-    print("=== ClimateRAG Confidence Threshold Calibration ===")
+    print("=== MedRAG Confidence Threshold Calibration ===")
     
     index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
     if not index_exists:

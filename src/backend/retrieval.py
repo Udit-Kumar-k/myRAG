@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import List, Dict, Any, Tuple, Union
-from src.backend.indexing import ClimateIndexManager, tokenize_for_bm25
+from src.backend.indexing import MedicalIndexManager, tokenize_for_bm25
 
 import re
 
@@ -82,8 +82,8 @@ def route_query(query: str) -> str:
 
     return tied[0]
 
-class ClimateRAGPipeline:
-    def __init__(self, index_manager: ClimateIndexManager, reranker_name: str = "BAAI/bge-reranker-v2-m3", confidence_threshold: float = 0.65):
+class MedicalRAGPipeline:
+    def __init__(self, index_manager: MedicalIndexManager, reranker_name: str = "BAAI/bge-reranker-v2-m3", confidence_threshold: float = 0.65):
         self.index_manager = index_manager
         self.reranker_name = reranker_name
         self.confidence_threshold = confidence_threshold

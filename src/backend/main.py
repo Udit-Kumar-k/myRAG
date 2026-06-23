@@ -13,12 +13,12 @@ from langchain_community.chat_message_histories import SQLChatMessageHistory
 load_dotenv()
 
 # Import project modules
-from src.backend.indexing import ClimateIndexManager
-from src.backend.retrieval import ClimateRAGPipeline
-from src.backend.chain import ClimateRAGChain
+from src.backend.indexing import MedicalIndexManager
+from src.backend.retrieval import MedicalRAGPipeline
+from src.backend.chain import MedicalRAGChain
 
 # Initialize FastAPI App
-app = FastAPI(title="ClimateRAG API", version="2.0.0")
+app = FastAPI(title="MedRAG API", version="2.0.0")
 
 # CORS Setup
 app.add_middleware(
@@ -184,7 +184,7 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
 # PIPELINE CONFIGURATION AND LOADING
 # -------------------------------------------------------------
 
-index_manager = ClimateIndexManager()
+index_manager = MedicalIndexManager()
 rag_pipeline = None
 rag_chain = None
 
@@ -194,12 +194,12 @@ def startup_event():
     # Load dense/sparse indexes
     success = index_manager.load_indexes()
     if not success:
-        print("WARNING: ClimateRAG indexes could not be loaded on startup.")
+        print("WARNING: MedRAG indexes could not be loaded on startup.")
     
     # Initialize query pipeline
     threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
-    rag_pipeline = ClimateRAGPipeline(index_manager, confidence_threshold=threshold)
-    rag_chain = ClimateRAGChain()
+    rag_pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=threshold)
+    rag_chain = MedicalRAGChain()
 
 # -------------------------------------------------------------
 # REQUEST/RESPONSE MODELS
@@ -254,7 +254,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         })
         
     if refused:
-        answer = "Insufficient evidence found in indexed G20 climate documents for this query. Consult official UNFCCC or government sources."
+        answer = "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed."
     else:
         # 2. Fetch past conversation history for LangChain context window
         database_url = os.environ.get("DATABASE_URL")

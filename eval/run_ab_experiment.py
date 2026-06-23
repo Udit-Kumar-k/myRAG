@@ -74,7 +74,7 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
         found_target = False
         for chunk in retrieved_chunks:
             chunk_iso = chunk.get("metadata", {}).get("geography_iso", "")
-            if chunk_iso == target_iso or (target_iso == "EU" and chunk_iso in ["EU", "EUR", "EUE"]):
+            if chunk_iso == target_iso:
                 found_target = True
                 break
                 
@@ -126,7 +126,7 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
         
         if provider == "groq":
             from langchain_groq import ChatGroq
-            eval_model = os.environ.get("LLM_MODEL", "llama-3.1-70b-versatile")
+            eval_model = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
             evaluator_llm = ChatGroq(
                 model=eval_model,
                 groq_api_key=api_key,
@@ -181,21 +181,21 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
     }
 
 def main():
-    print("=== ClimateRAG A/B Comparison Experiment ===")
+    print("=== MedRAG A/B Comparison Experiment ===")
     
-    index_exists = os.path.exists("data/indexes/national_laws_chunks.pkl")
+    index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
     if not index_exists:
         raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
         
-    from src.backend.indexing import ClimateIndexManager
-    from src.backend.retrieval import ClimateRAGPipeline
-    from src.backend.chain import ClimateRAGChain
+    from src.backend.indexing import MedicalIndexManager
+    from src.backend.retrieval import MedicalRAGPipeline
+    from src.backend.chain import MedicalRAGChain
     
     print("Loading indexes and pipeline for actual runs...")
-    index_manager = ClimateIndexManager()
+    index_manager = MedicalIndexManager()
     index_manager.load_indexes()
-    pipeline = ClimateRAGPipeline(index_manager)
-    chain = ClimateRAGChain()
+    pipeline = MedicalRAGPipeline(index_manager)
+    chain = MedicalRAGChain()
     
     results = []
     for i in range(1, 6):
@@ -210,8 +210,8 @@ def main():
     os.makedirs("data", exist_ok=True)
     md_path = "data/ab_comparison_results.md"
     with open(md_path, "w") as f:
-        f.write("# ClimateRAG A/B Comparison Experiment Results\n\n")
-        f.write("This table compares the performance metrics of the ClimateRAG retrieval pipeline across 5 configurations.\n\n")
+        f.write("# MedRAG A/B Comparison Experiment Results\n\n")
+        f.write("This table compares the performance metrics of the MedRAG retrieval pipeline across 5 configurations.\n\n")
         
         headers = ["Configuration", "Context Recall", "RAGAS Faithfulness", "Refusal Rate", "Avg Latency (s)"]
         f.write("| " + " | ".join(headers) + " |\n")

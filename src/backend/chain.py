@@ -40,8 +40,8 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
     return "\n\n".join(formatted)
 
 
-# ── ClimateRAGChain class body is identical — only imports differ ──────────
-class ClimateRAGChain:
+# ── MedicalRAGChain class body is identical — only imports differ ──────────
+class MedicalRAGChain:
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
         if api_key:
@@ -60,7 +60,7 @@ class ClimateRAGChain:
                 self.model_name = env_model
             else:
                 self.model_name = (
-                    "llama-3.1-70b-versatile" if self.provider == "groq" else "gemma-4-31b-it"
+                    "llama-3.3-70b-versatile" if self.provider == "groq" else "gemma-4-31b-it"
                 )
         self._llm = None
         self._chain = None

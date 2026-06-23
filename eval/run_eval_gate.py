@@ -11,17 +11,17 @@ from src.backend.eval import EVAL_QUERIES
 
 def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Runs queries through the actual RAG pipeline and Chain."""
-    print("Running queries through the actual ClimateRAG pipeline...")
-    from src.backend.indexing import ClimateIndexManager
-    from src.backend.retrieval import ClimateRAGPipeline
-    from src.backend.chain import ClimateRAGChain
+    print("Running queries through the actual MedRAG pipeline...")
+    from src.backend.indexing import MedicalIndexManager
+    from src.backend.retrieval import MedicalRAGPipeline
+    from src.backend.chain import MedicalRAGChain
     
-    index_manager = ClimateIndexManager()
+    index_manager = MedicalIndexManager()
     if not index_manager.load_indexes():
         raise ValueError("Failed to load indexes. Build them first.")
         
-    pipeline = ClimateRAGPipeline(index_manager)
-    chain = ClimateRAGChain()
+    pipeline = MedicalRAGPipeline(index_manager)
+    chain = MedicalRAGChain()
     
     dataset_records = []
     for item in queries:
@@ -33,7 +33,7 @@ def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         contexts = [c["text"] for c in retrieved_chunks]
         
         if refused:
-            answer = "Insufficient evidence found in indexed G20 climate documents for this query. Consult official UNFCCC or government sources."
+            answer = "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed."
         else:
             try:
                 answer = chain.run(q, retrieved_chunks, history=[])
@@ -80,7 +80,7 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         # Instantiate LLM evaluator
         if provider == "groq":
             from langchain_groq import ChatGroq
-            eval_model = os.environ.get("LLM_MODEL", "llama-3.1-70b-versatile")
+            eval_model = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
             evaluator_llm = ChatGroq(
                 model=eval_model,
                 groq_api_key=api_key,
@@ -124,13 +124,13 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         raise e
 
 def main():
-    print("=== ClimateRAG CI/CD RAGAS Eval Gate ===")
+    print("=== MedRAG CI/CD RAGAS Eval Gate ===")
     
     # Pick 20 queries from the eval queries (first 20 single-country queries)
     test_queries = EVAL_QUERIES[:20]
     
     # Check if index files exist to decide between real and simulation mode
-    index_exists = os.path.exists("data/indexes/national_laws_chunks.pkl")
+    index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
     if not index_exists:
         raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
         

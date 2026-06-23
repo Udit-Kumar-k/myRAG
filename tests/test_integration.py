@@ -18,34 +18,34 @@ class TestIntegrationEndpoints(unittest.TestCase):
     def test_query_endpoint_success(self, mock_chain, mock_pipeline):
         # Configure pipeline mock for a successful query
         mock_pipeline.query.return_value = {
-            "query": "What is Germany's 2030 target?",
+            "query": "What is the first-line treatment for pneumonia?",
             "refused": False,
             "confidence_score": 0.85,
-            "namespace_searched": "national_laws",
+            "namespace_searched": "clinical_medicine",
             "retrieved_chunks": [
                 {
-                    "text": "Germany targets 65% reduction by 2030.",
+                    "text": "First-line treatment for community-acquired pneumonia is amoxicillin.",
                     "relevance_score": 0.85,
                     "metadata": {
-                        "document_name": "Climate Protection Act",
-                        "geography_iso": "DEU",
+                        "document_name": "Nelson Pediatrics",
+                        "geography_iso": "clinical_medicine",
                         "pub_year": 2021,
-                        "namespace": "national_laws",
-                        "source_url": "https://bundesregierung.de/law"
+                        "namespace": "clinical_medicine",
+                        "source_url": "https://ncbi.nlm.nih.gov/books"
                     }
                 }
             ]
         }
         
         # Configure chain mock
-        mock_chain.run.return_value = "Germany targets 65% reduction by 2030 under its Climate Protection Act."
+        mock_chain.run.return_value = "First-line treatment for community-acquired pneumonia is amoxicillin as stated in Nelson Pediatrics."
         
         # Make the request to FastAPI
         # Header has bearer token, which activates mock auth test_user_123
         response = client.post(
             "/query",
             json={
-                "question": "What is Germany's 2030 target?",
+                "question": "What is the first-line treatment for pneumonia?",
                 "conversation_id": "test_conv_abc"
             },
             headers={"Authorization": "Bearer mock-token"}
@@ -55,9 +55,9 @@ class TestIntegrationEndpoints(unittest.TestCase):
         data = response.json()
         self.assertFalse(data["refused"])
         self.assertEqual(data["confidence_score"], 0.85)
-        self.assertIn("65%", data["answer"])
+        self.assertIn("pneumonia", data["answer"])
         self.assertEqual(len(data["sources"]), 1)
-        self.assertEqual(data["sources"][0]["geography_iso"], "DEU")
+        self.assertEqual(data["sources"][0]["geography_iso"], "clinical_medicine")
 
     @patch("src.backend.main.rag_pipeline")
     def test_query_endpoint_refusal(self, mock_pipeline):
@@ -84,13 +84,13 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertTrue(data["refused"])
         self.assertEqual(data["confidence_score"], 0.15)
         self.assertEqual(len(data["sources"]), 0)
-        self.assertIn("Insufficient evidence found", data["answer"])
+        self.assertIn("Insufficient evidence found in indexed medical textbooks", data["answer"])
 
     def test_health_endpoint(self):
         # Patch index manager to say indexes are loaded
         with patch("src.backend.main.index_manager") as mock_manager:
-            mock_manager.faiss_indexes = {"national_laws": {}, "ndc_commitments": {}, "international_agreements": {}}
-            mock_manager.namespaces = ["national_laws", "ndc_commitments", "international_agreements"]
+            mock_manager.faiss_indexes = {"basic_sciences": {}, "pharmacology": {}, "clinical_medicine": {}}
+            mock_manager.namespaces = ["basic_sciences", "pharmacology", "clinical_medicine"]
             
             response = client.get("/health")
             self.assertEqual(response.status_code, 200)
