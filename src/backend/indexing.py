@@ -27,12 +27,13 @@ class MedicalIndexManager:
         os.makedirs(self.index_dir, exist_ok=True)
 
     def load_embedding_model(self):
-        """Lazy loads the BGE-M3 embedding model."""
+        """Lazy loads the BGE-M3 embedding model, using GPU when available."""
         if self.model is None:
-            print(f"Loading embedding model {self.model_name}...")
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"Loading embedding model {self.model_name} on device={device}...")
             from sentence_transformers import SentenceTransformer
-            # Explicitly enforce CUDA device to use GPU for indexing
-            self.model = SentenceTransformer(self.model_name, device="cuda")
+            self.model = SentenceTransformer(self.model_name, device=device)
             print("Model loaded successfully.")
         return self.model
 

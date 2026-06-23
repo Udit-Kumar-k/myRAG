@@ -3,11 +3,17 @@ import os
 os.environ["DATABASE_URL"] = ""
 
 import unittest
-from unittest.mock import MagicMock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi.testclient import TestClient
 
-# We mock the startup_event to prevent loading heavy models and indexes during web client tests
-with patch("src.backend.main.startup_event") as mock_startup:
+# Patch the lifespan context manager so tests don't load heavy models/indexes.
+# We replace it with a no-op async context manager before importing the app.
+@asynccontextmanager
+async def _noop_lifespan(app):
+    yield
+
+with patch("src.backend.main.lifespan", _noop_lifespan):
     from src.backend.main import app
     client = TestClient(app)
 

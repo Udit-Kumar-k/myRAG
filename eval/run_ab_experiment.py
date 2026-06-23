@@ -50,13 +50,16 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
             pipeline.confidence_threshold = 0.60
             res = pipeline.query(item["question"])
         elif config_num == 4:
-            # 4. +reranking: Full hybrid + rerank, temporal disabled
+            # 4. +reranking: Full hybrid + cross-encoder rerank, but temporal DISABLED.
+            # Monkey-patch retrieve() to force temporal_boost=0.0 for this config only,
+            # so the ablation table row genuinely isolates reranking without temporal boost.
             pipeline.confidence_threshold = 0.65
-            # We run it with temporal_boost parameter set to 0.0 inside retrieval if we patch it
-            # For simplicity, we just run query
+            original_retrieve = pipeline.retrieve
+            pipeline.retrieve = lambda q, **kw: original_retrieve(q, temporal_boost=0.0, **kw)
             res = pipeline.query(item["question"])
+            pipeline.retrieve = original_retrieve  # restore after query
         elif config_num == 5:
-            # 5. +temporal: Full pipeline (Reranking + Temporal Boost)
+            # 5. +temporal: Full pipeline (Reranking + Temporal Boost active)
             pipeline.confidence_threshold = 0.65
             res = pipeline.query(item["question"])
             

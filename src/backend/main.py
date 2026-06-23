@@ -2,6 +2,7 @@ import os
 import json
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +18,28 @@ from src.backend.indexing import MedicalIndexManager
 from src.backend.retrieval import MedicalRAGPipeline
 from src.backend.chain import MedicalRAGChain
 
+# -------------------------------------------------------------
+# PIPELINE GLOBALS (declared here so lifespan can reference them)
+# -------------------------------------------------------------
+index_manager = MedicalIndexManager()
+rag_pipeline = None
+rag_chain = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern FastAPI lifespan handler — replaces deprecated @app.on_event."""
+    global rag_pipeline, rag_chain
+    success = index_manager.load_indexes()
+    if not success:
+        print("WARNING: MedAtlas indexes could not be loaded on startup.")
+    threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
+    rag_pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=threshold)
+    rag_chain = MedicalRAGChain()
+    yield  # application runs here
+    # Shutdown logic can go here if needed
+
 # Initialize FastAPI App
-app = FastAPI(title="MedAtlas API", version="2.0.0")
+app = FastAPI(title="MedAtlas API", version="2.0.0", lifespan=lifespan)
 
 # CORS Setup
 app.add_middleware(
@@ -180,26 +201,7 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid or expired Supabase token: {str(e)}")
 
-# -------------------------------------------------------------
-# PIPELINE CONFIGURATION AND LOADING
-# -------------------------------------------------------------
-
-index_manager = MedicalIndexManager()
-rag_pipeline = None
-rag_chain = None
-
-@app.on_event("startup")
-def startup_event():
-    global rag_pipeline, rag_chain
-    # Load dense/sparse indexes
-    success = index_manager.load_indexes()
-    if not success:
-        print("WARNING: MedAtlas indexes could not be loaded on startup.")
-    
-    # Initialize query pipeline
-    threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
-    rag_pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=threshold)
-    rag_chain = MedicalRAGChain()
+# (Pipeline globals and lifespan handler moved above app initialization)
 
 # -------------------------------------------------------------
 # REQUEST/RESPONSE MODELS

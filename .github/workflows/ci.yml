@@ -1,4 +1,4 @@
-name: ClimateRAG CI/CD Pipeline
+name: MedAtlas CI/CD Pipeline
 
 on:
   push:
@@ -30,6 +30,10 @@ jobs:
         python -m pytest tests/ -v
         
     - name: Run RAGAS eval gate simulation
+      # Only runs when GEMINI_API_KEY secret is set AND indexes exist.
+      # Skip silently in bare CI runners — no GPU, no model cache, no HuggingFace indexes.
+      if: ${{ env.GEMINI_API_KEY != '' }}
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        # Run eval gate to execute RAGAS faithfulness threshold check
         python eval/run_eval_gate.py

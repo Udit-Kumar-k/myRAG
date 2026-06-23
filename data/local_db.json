@@ -425,6 +425,55 @@
         "confidence_score": 0.85,
         "refused": false,
         "namespace_searched": "clinical_medicine"
+      },
+      {
+        "message_id": "1cb962a3-3e53-4756-ba0b-756e7123a184",
+        "timestamp": 1782198572.4473746,
+        "role": "user",
+        "content": "Who is the prime minister of France?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "2f2d6185-5491-41ce-bc61-ec3282140f1e",
+        "timestamp": 1782198572.4695272,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "abde7ced-3166-4097-9e7d-2375bfd0d6a5",
+        "timestamp": 1782198572.5308275,
+        "role": "user",
+        "content": "What is the first-line treatment for pneumonia?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "0eb6c988-cfab-4899-85e6-a83f8f9d55e6",
+        "timestamp": 1782198572.557751,
+        "role": "assistant",
+        "content": "First-line treatment for community-acquired pneumonia is amoxicillin as stated in Nelson Pediatrics.",
+        "sources": [
+          {
+            "document_name": "Nelson Pediatrics",
+            "geography_iso": "clinical_medicine",
+            "pub_year": 2021,
+            "namespace": "clinical_medicine",
+            "source_url": "https://ncbi.nlm.nih.gov/books",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "clinical_medicine"
       }
     ]
   }
