@@ -11,7 +11,7 @@ from src.backend.eval import EVAL_QUERIES
 
 def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Runs queries through the actual RAG pipeline and Chain."""
-    print("Running queries through the actual MedRAG pipeline...")
+    print("Running queries through the actual MedAtlas pipeline...")
     from src.backend.indexing import MedicalIndexManager
     from src.backend.retrieval import MedicalRAGPipeline
     from src.backend.chain import MedicalRAGChain
@@ -124,7 +124,7 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         raise e
 
 def main():
-    print("=== MedRAG CI/CD RAGAS Eval Gate ===")
+    print("=== MedAtlas CI/CD RAGAS Eval Gate ===")
     
     # Pick 20 queries from the eval queries (first 20 single-country queries)
     test_queries = EVAL_QUERIES[:20]

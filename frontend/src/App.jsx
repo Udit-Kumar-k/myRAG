@@ -112,7 +112,7 @@ function App() {
       } else {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: "System error: Failed to connect to MedRAG backend.",
+          content: "System error: Failed to connect to MedAtlas backend.",
           refused: true, confidenceScore: 0
         }]);
       }
@@ -135,7 +135,7 @@ function App() {
   };
 
   const handleBypassAuth = () => {
-    setUser({ id: "00000000-0000-0000-0000-000000000000", email: "dev@medrag.local", user_metadata: { full_name: "Development User" } });
+    setUser({ id: "00000000-0000-0000-0000-000000000000", email: "dev@medatlas.local", user_metadata: { full_name: "Development User" } });
     setToken("mock-token");
   };
 
@@ -162,7 +162,7 @@ function App() {
         <div className="card-glass" style={{ maxWidth: '420px', width: '100%', textAlign: 'center', padding: '2.5rem 2rem' }}>
           <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>🩺</div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '2rem', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-            MedRAG
+            MedAtlas
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: 1.5 }}>
             Medical Textbook Knowledge Assistant — grounded answers from 18 authoritative textbooks including Harrison's, Robbins, and Goodman & Gilman's.
@@ -193,7 +193,7 @@ function App() {
     <div className="app-container">
       <header className="header">
         <div className="logo-section">
-          <h1>MedRAG</h1>
+          <h1>MedAtlas</h1>
           <p>Medical Textbook Knowledge Assistant</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -230,7 +230,7 @@ function App() {
         </div>
 
         <div className="card-glass" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-          <h3>MedRAG Scope</h3>
+          <h3>MedAtlas Scope</h3>
           <p style={{ marginBottom: '0.5rem' }}>
             Authenticated as: <strong style={{ color: 'var(--text-primary)' }}>{user.user_metadata?.full_name || user.email}</strong>
           </p>

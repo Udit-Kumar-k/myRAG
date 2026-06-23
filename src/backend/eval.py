@@ -192,7 +192,6 @@ def build_eval_from_medqa(num_questions: int = 100) -> List[Dict[str, Any]]:
         ds = load_dataset(
             "GBaker/MedQA-USMLE-4-options",
             split=f"test[:{num_questions}]",
-            trust_remote_code=True,
         )
     except Exception as e:
         print(f"MedQA dataset unavailable ({e}). Falling back to hardcoded eval set.")
@@ -323,6 +322,11 @@ def run_local_evaluation(pipeline: Any, chain: Any) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
+    
+    # Try to load evaluation questions from public HuggingFace MedQA benchmark
+    print("Attempting to load evaluation set from HuggingFace MedQA...")
+    queries = build_eval_from_medqa(num_questions=50)  # 50 representative questions
+    
     with open("data/eval_set.json", "w") as f:
-        json.dump(EVAL_QUERIES, f, indent=2)
-    print(f"Saved {len(EVAL_QUERIES)} eval queries to data/eval_set.json")
+        json.dump(queries, f, indent=2)
+    print(f"Saved {len(queries)} eval queries to data/eval_set.json")

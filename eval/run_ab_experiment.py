@@ -181,7 +181,7 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
     }
 
 def main():
-    print("=== MedRAG A/B Comparison Experiment ===")
+    print("=== MedAtlas A/B Comparison Experiment ===")
     
     index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
     if not index_exists:
@@ -210,8 +210,8 @@ def main():
     os.makedirs("data", exist_ok=True)
     md_path = "data/ab_comparison_results.md"
     with open(md_path, "w") as f:
-        f.write("# MedRAG A/B Comparison Experiment Results\n\n")
-        f.write("This table compares the performance metrics of the MedRAG retrieval pipeline across 5 configurations.\n\n")
+        f.write("# MedAtlas A/B Comparison Experiment Results\n\n")
+        f.write("This table compares the performance metrics of the MedAtlas retrieval pipeline across 5 configurations.\n\n")
         
         headers = ["Configuration", "Context Recall", "RAGAS Faithfulness", "Refusal Rate", "Avg Latency (s)"]
         f.write("| " + " | ".join(headers) + " |\n")

@@ -72,7 +72,7 @@ def run_real_calibration() -> List[Dict[str, Any]]:
     return records
 
 def main():
-    print("=== MedRAG Confidence Threshold Calibration ===")
+    print("=== MedAtlas Confidence Threshold Calibration ===")
     
     index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
     if not index_exists:

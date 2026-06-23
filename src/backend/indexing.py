@@ -31,8 +31,8 @@ class MedicalIndexManager:
         if self.model is None:
             print(f"Loading embedding model {self.model_name}...")
             from sentence_transformers import SentenceTransformer
-            # Using CPU by default, sentence_transformers will auto-detect CUDA if available
-            self.model = SentenceTransformer(self.model_name)
+            # Explicitly enforce CUDA device to use GPU for indexing
+            self.model = SentenceTransformer(self.model_name, device="cuda")
             print("Model loaded successfully.")
         return self.model
 
@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     from src.backend.ingestion import process_corpus  # now loads MedRAG/textbooks
 
-    print("=== MedRAG Index Generation Pipeline ===")
+    print("=== MedAtlas Index Generation Pipeline ===")
 
     hf_token = os.environ.get("HF_TOKEN")
     if hf_token == "your_huggingface_token_here" or not hf_token:

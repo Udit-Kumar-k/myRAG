@@ -18,7 +18,7 @@ from src.backend.retrieval import MedicalRAGPipeline
 from src.backend.chain import MedicalRAGChain
 
 # Initialize FastAPI App
-app = FastAPI(title="MedRAG API", version="2.0.0")
+app = FastAPI(title="MedAtlas API", version="2.0.0")
 
 # CORS Setup
 app.add_middleware(
@@ -194,7 +194,7 @@ def startup_event():
     # Load dense/sparse indexes
     success = index_manager.load_indexes()
     if not success:
-        print("WARNING: MedRAG indexes could not be loaded on startup.")
+        print("WARNING: MedAtlas indexes could not be loaded on startup.")
     
     # Initialize query pipeline
     threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))

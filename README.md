@@ -1,8 +1,8 @@
-# MedRAG — Medical Textbook RAG System
+# MedAtlas — Medical Textbook RAG System
 
-MedRAG is a production-grade Retrieval-Augmented Generation system grounded in 18 authoritative medical textbooks. It answers clinical and biomedical questions with document-grounded responses from sources including Harrison's Principles of Internal Medicine, Goodman & Gilman's Pharmacology, Robbins Pathology, and Gray's Anatomy.
+MedAtlas is a production-grade Retrieval-Augmented Generation system grounded in 18 authoritative medical textbooks. It answers clinical and biomedical questions with document-grounded responses from sources including Harrison's Principles of Internal Medicine, Goodman & Gilman's Pharmacology, Robbins Pathology, and Gray's Anatomy.
 
-**Why RAG over a plain LLM?** LLMs confidently hallucinate specific drug dosages, diagnostic criteria thresholds, and anatomical relationships. MedRAG grounds every answer in actual textbook text, refuses when retrieval confidence falls below a calibrated gate, and cites the source textbook.
+**Why RAG over a plain LLM?** LLMs confidently hallucinate specific drug dosages, diagnostic criteria thresholds, and anatomical relationships. MedAtlas grounds every answer in actual textbook text, refuses when retrieval confidence falls below a calibrated gate, and cites the source textbook.
 
 ---
 
