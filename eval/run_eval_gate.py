@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import re
+import numpy as np
 from typing import List, Dict, Any
 
 # Ensure we can import from src
@@ -116,12 +117,13 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
             embeddings=evaluator_embeds
         )
         
-        score = results.get("faithfulness", 0.0)
+        scores_list = results["faithfulness"]   # List[float], one per query in ragas 0.2
+        score = float(np.nanmean(scores_list)) if scores_list else 0.0
         print(f"RAGAS Faithfulness: {score:.4f}")
         return score
     except Exception as e:
         print(f"Error during RAGAS evaluation: {e}")
-        raise e
+        raise
 
 def main():
     print("=== MedAtlas CI/CD RAGAS Eval Gate ===")

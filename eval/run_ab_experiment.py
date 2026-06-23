@@ -162,10 +162,11 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
             llm=evaluator_llm,
             embeddings=evaluator_embeds
         )
-        faithfulness_score = results.get("faithfulness", 0.0)
+        scores_list = results["faithfulness"]   # List[float], one per query in ragas 0.2
+        faithfulness_score = float(np.nanmean(scores_list)) if scores_list else 0.0
     except Exception as e:
         print(f"Error during RAGAS evaluation: {e}")
-        raise e
+        raise
         
     config_names = {
         1: "1. Baseline (Dense only, simple chunks)",
