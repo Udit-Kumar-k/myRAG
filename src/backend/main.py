@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from langchain_community.chat_message_histories import SQLChatMessageHistory
 
 load_dotenv()
 
@@ -265,6 +264,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         # If DATABASE_URL is active, load from SQLChatMessageHistory exclusively
         if database_url:
             try:
+                from langchain_community.chat_message_histories import SQLChatMessageHistory
                 chat_history = SQLChatMessageHistory(
                     session_id=f"{uid}:{req.conversation_id}",
                     connection_string=database_url
@@ -299,6 +299,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         # 4. Save exchange to context history store
         if database_url:
             try:
+                from langchain_community.chat_message_histories import SQLChatMessageHistory
                 chat_history = SQLChatMessageHistory(
                     session_id=f"{uid}:{req.conversation_id}",
                     connection_string=database_url

@@ -106,13 +106,10 @@ def load_medrag_textbooks(
                 "textbook_title":  title,
                 "chunk_id":        chunk_id,
                 "namespace":       namespace,
-                # Conservative approximation; MedRAG textbooks are ~2018-2022 eds.
-                # Temporal boost will still rank more-recent editions higher if pub_year
-                # metadata ever becomes available per-chunk.
                 "pub_year":        2020,
                 "source_url":      "https://huggingface.co/datasets/MedRAG/textbooks",
-                # geography_iso kept for schema compatibility with ClimateIndexManager;
-                # set to namespace label so calibrate_threshold recall-by-namespace works.
+                # geography_iso kept for schema compatibility with MedicalIndexManager;
+                # maps naturally to textbook namespace (e.g. basic_sciences)
                 "geography_iso":   namespace,
             }
         })
@@ -130,7 +127,7 @@ def process_corpus(
     **_kwargs,          # absorbs max_docs and tokenizer args for drop-in compatibility
 ) -> List[Dict[str, Any]]:
     """
-    Drop-in replacement for the old ClimateRAG process_corpus.
+    Drop-in replacement for the old process_corpus.
     Ignores max_docs because the dataset is bounded and safe to load fully.
     """
     return load_medrag_textbooks(hf_token=hf_token)

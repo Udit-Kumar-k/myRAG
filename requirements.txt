@@ -9,6 +9,7 @@ fastapi~=0.115
 uvicorn~=0.32
 supabase~=2.10
 psycopg2-binary~=2.9
+sqlalchemy~=2.0
 ragas~=0.2
 langchain~=0.3
 langchain-community~=0.3

@@ -72,12 +72,12 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
         if refused:
             refused_count += 1
             
-        # Context Recall check
-        target_iso = item["geography_iso"]
+        # Context Recall check using keyword matching
+        keywords = [kw.lower() for kw in item.get("ground_truth_keywords", [])]
         found_target = False
         for chunk in retrieved_chunks:
-            chunk_iso = chunk.get("metadata", {}).get("geography_iso", "")
-            if chunk_iso == target_iso:
+            chunk_text = chunk.get("text", "").lower()
+            if any(kw in chunk_text for kw in keywords):
                 found_target = True
                 break
                 
