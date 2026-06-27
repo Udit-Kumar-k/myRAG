@@ -1,6 +1,6 @@
-# ClimateRAG A/B Comparison Experiment Results
+# MedAtlas A/B Comparison Experiment Results
 
-This table compares the performance metrics of the ClimateRAG retrieval pipeline across 5 configurations.
+This table compares the performance metrics of the MedAtlas retrieval pipeline across 5 configurations.
 
 | Configuration | Context Recall | RAGAS Faithfulness | Refusal Rate | Avg Latency (s) |
 |---|---|---|---|---|

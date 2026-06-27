@@ -55,6 +55,14 @@ class MedicalIndexManager:
         import faiss
 
         for ns in self.namespaces:
+            # Check if index files already exist to support resuming
+            chunks_path = os.path.join(self.index_dir, f"{ns}_chunks.pkl")
+            faiss_path = os.path.join(self.index_dir, f"{ns}_faiss.index")
+            bm25_path = os.path.join(self.index_dir, f"{ns}_bm25.pkl")
+            if os.path.exists(chunks_path) and os.path.exists(faiss_path) and os.path.exists(bm25_path):
+                print(f"\n--- Namespace: {ns} already indexed. Skipping. ---")
+                continue
+
             chunks = ns_chunks[ns]
             print(f"\n--- Building indexes for namespace: {ns} ({len(chunks)} chunks) ---")
             if not chunks:
@@ -163,9 +171,9 @@ if __name__ == "__main__":
             print("No chunks generated. Check dataset access.")
         else:
             print(f"Generated {len(chunks)} chunks. Building indexes...")
-            # Drop batch_size to 32 for RTX 2050 (4 GB VRAM)
+            # Drop batch_size to 16 for RTX 2050 (4 GB VRAM) to prevent CUDA OOM
             manager = MedicalIndexManager()
-            manager.build_indexes(chunks, batch_size=32)
+            manager.build_indexes(chunks, batch_size=16)
             print("=== Index Generation Complete ===")
     except Exception as e:
         print(f"Error: {e}")
