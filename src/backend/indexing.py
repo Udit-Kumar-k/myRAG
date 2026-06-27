@@ -124,19 +124,20 @@ class MedicalIndexManager:
 
     def load_indexes(self) -> bool:
         """
-        Loads all namespace indexes from disk into memory.
-        Returns True if successful, False otherwise.
+        Loads all available namespace indexes from disk into memory.
+        Returns True if at least one namespace was loaded, False otherwise.
         """
         import faiss
         
+        loaded_count = 0
         for ns in self.namespaces:
             chunks_path = os.path.join(self.index_dir, f"{ns}_chunks.pkl")
             faiss_path = os.path.join(self.index_dir, f"{ns}_faiss.index")
             bm25_path = os.path.join(self.index_dir, f"{ns}_bm25.pkl")
             
             if not (os.path.exists(chunks_path) and os.path.exists(faiss_path) and os.path.exists(bm25_path)):
-                print(f"Missing index files for namespace: {ns}. Looked in {self.index_dir}")
-                return False
+                print(f"Namespace '{ns}' index files not found on disk. Skipping.")
+                continue
                 
             print(f"Loading index files for namespace: {ns}...")
             # Load chunks
@@ -150,8 +151,14 @@ class MedicalIndexManager:
             with open(bm25_path, "rb") as f:
                 self.bm25_indexes[ns] = pickle.load(f)
                 
-        print("All namespace indexes loaded successfully.")
-        return True
+            loaded_count += 1
+                
+        if loaded_count > 0:
+            print(f"Successfully loaded {loaded_count} namespace index(es) into memory.")
+            return True
+        else:
+            print("No namespace indexes found on disk.")
+            return False
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
