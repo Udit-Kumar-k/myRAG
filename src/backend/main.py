@@ -33,11 +33,21 @@ async def lifespan(app: FastAPI):
         print("WARNING: MedAtlas indexes could not be loaded on startup.")
     threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
     rag_pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=threshold)
+    
+    # Pre-load heavy models on startup to prevent slow first query timeouts on CPU
+    try:
+        print("Pre-loading embedding model...")
+        index_manager.load_embedding_model()
+        print("Pre-loading reranker model...")
+        rag_pipeline.load_reranker()
+    except Exception as e:
+        print(f"WARNING: Error pre-loading models: {e}")
+
     rag_chain = MedicalRAGChain()
     yield  # application runs here
     # Shutdown logic can go here if needed
 
-# Initialize FastAPI App
+# Initialize FastAPI Web Application
 app = FastAPI(title="MedAtlas API", version="2.0.0", lifespan=lifespan)
 
 # CORS Setup
@@ -53,18 +63,26 @@ app.add_middleware(
 # SUPABASE CLIENT INITIALIZATION
 # -------------------------------------------------------------
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+# Validate that the URL looks like a real Supabase URL before initialising client
+_supabase_configured = (
+    SUPABASE_URL.startswith("https://") and
+    ".supabase.co" in SUPABASE_URL and
+    SUPABASE_SERVICE_KEY and
+    SUPABASE_SERVICE_KEY != "your_supabase_service_role_key_here"
+)
 
 supabase: Optional[Client] = None
-if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+if _supabase_configured:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         print("Supabase client initialized successfully.")
     except Exception as e:
         print(f"Error initializing Supabase client: {e}")
 else:
-    print("Missing Supabase credentials. Running in local mock mode only.")
+    print("Supabase not configured. Running in local mock mode only.")
 
 # -------------------------------------------------------------
 # DATABASE AND AUTH MANAGER (SUPABASE POSTGRESQL + LOCAL FALLBACK)
@@ -259,10 +277,11 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
     else:
         # 2. Fetch past conversation history for LangChain context window
         database_url = os.environ.get("DATABASE_URL")
+        is_placeholder = not database_url or "[project-ref]" in database_url or "placeholder" in database_url
         history_msgs = []
         
-        # If DATABASE_URL is active, load from SQLChatMessageHistory exclusively
-        if database_url:
+        # If DATABASE_URL is active and not mock, load from SQLChatMessageHistory exclusively
+        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "true").lower() != "true":
             try:
                 from langchain_community.chat_message_histories import SQLChatMessageHistory
                 chat_history = SQLChatMessageHistory(
@@ -297,7 +316,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
             raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
 
         # 4. Save exchange to context history store
-        if database_url:
+        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "true").lower() != "true":
             try:
                 from langchain_community.chat_message_histories import SQLChatMessageHistory
                 chat_history = SQLChatMessageHistory(
@@ -349,11 +368,15 @@ def get_conversation_history(conversation_id: str, uid: str = Depends(authentica
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    indexes_loaded = len(index_manager.faiss_indexes) == len(index_manager.namespaces)
+    loaded_ns = list(index_manager.faiss_indexes.keys())
+    # Healthy if at least one namespace is loaded (clinical_medicine may not exist yet)
+    indexes_ready = len(loaded_ns) > 0
     return {
-        "status": "healthy" if indexes_loaded else "uninitialized",
-        "indexes_loaded": indexes_loaded,
-        "loaded_namespaces": list(index_manager.faiss_indexes.keys()),
+        "status": "healthy" if indexes_ready else "uninitialized",
+        "indexes_loaded": indexes_ready,
+        "loaded_namespaces": loaded_ns,
+        "missing_namespaces": [ns for ns in index_manager.namespaces if ns not in index_manager.faiss_indexes],
+        "embedding_model_loaded": index_manager.model is not None,
         "supabase_connected": supabase is not None,
         "timestamp": time.time()
     }

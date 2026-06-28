@@ -22,3 +22,9 @@ frontend/.env
 frontend/.env.local
 data/eval_set.json
 data/eval_results.json
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
