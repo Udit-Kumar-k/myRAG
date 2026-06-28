@@ -31,6 +31,15 @@ function App() {
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
 
+  // ── Auth UI State ────────────────────────────────────
+  const [authMode, setAuthMode]       = useState('signin'); // 'signin'|'signup'|'forgot'
+  const [authEmail, setAuthEmail]     = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirm, setAuthConfirm] = useState('');
+  const [authError, setAuthError]     = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authSuccess, setAuthSuccess] = useState('');
+
   // ── Auth ────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -44,8 +53,24 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (user) { checkHealth(); startNew(); }
+    if (user) {
+      // Clean any OAuth redirect hash/params from the URL
+      if (window.location.hash || window.location.search) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+      // Push a sentinel state and lock the back button while logged in
+      window.history.pushState({ medatlas: true }, '', window.location.pathname);
+      const handlePopState = () => {
+        // Always push forward — prevents navigating away while authenticated
+        window.history.pushState({ medatlas: true }, '', window.location.pathname);
+      };
+      window.addEventListener('popstate', handlePopState);
+      checkHealth();
+      startNew();
+      return () => window.removeEventListener('popstate', handlePopState);
+    }
   }, [user]);
+
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -176,19 +201,68 @@ function App() {
     }
   };
 
-  // ── Auth actions ────────────────────────────────────────
+  // ── Auth actions ────────────────────────────────────
   const signInGoogle = async () => {
+    setAuthError('');
     try {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: window.location.origin },
       });
-    } catch (err) { console.error(err); }
+    } catch (err) { setAuthError('Google sign-in failed. Please try again.'); }
+  };
+
+  const signInEmail = async (e) => {
+    e.preventDefault();
+    setAuthError(''); setAuthLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authEmail, password: authPassword,
+      });
+      if (error) setAuthError(error.message);
+    } catch { setAuthError('Sign-in failed. Check your credentials and try again.'); }
+    finally { setAuthLoading(false); }
+  };
+
+  const signUpEmail = async (e) => {
+    e.preventDefault();
+    setAuthError(''); setAuthSuccess('');
+    if (authPassword !== authConfirm) { setAuthError('Passwords do not match.'); return; }
+    if (authPassword.length < 8) { setAuthError('Password must be at least 8 characters.'); return; }
+    setAuthLoading(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: authEmail, password: authPassword,
+      });
+      if (error) setAuthError(error.message);
+      else setAuthSuccess('Account created! Check your email to confirm your address before signing in.');
+    } catch { setAuthError('Sign-up failed. Please try again.'); }
+    finally { setAuthLoading(false); }
+  };
+
+  const sendPasswordReset = async (e) => {
+    e.preventDefault();
+    setAuthError(''); setAuthSuccess('');
+    if (!authEmail) { setAuthError('Enter your email address above.'); return; }
+    setAuthLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(authEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) setAuthError(error.message);
+      else setAuthSuccess('Password reset link sent — check your inbox.');
+    } catch { setAuthError('Failed to send reset link. Try again.'); }
+    finally { setAuthLoading(false); }
   };
 
   const bypassAuth = () => {
     setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'dev@medatlas.local', user_metadata: { full_name: 'Dev User' } });
     setToken('mock-token');
+  };
+
+  const switchAuthMode = (mode) => {
+    setAuthMode(mode); setAuthError(''); setAuthSuccess('');
+    setAuthPassword(''); setAuthConfirm('');
   };
 
   const signOut = async () => {
@@ -205,36 +279,163 @@ function App() {
     return (
       <div className="auth-screen">
         <div className="auth-card">
+          {/* Header */}
           <div className="auth-logo">
-            <div className="auth-logo-mark">M</div>
             <span className="auth-logo-name">MedAtlas</span>
           </div>
-          <div className="auth-title">Sign in to continue</div>
           <div className="auth-subtitle">
-            Answers grounded in 18 medical textbooks — Harrison's, Robbins, Goodman &amp; Gilman's, and more.
+            Grounded in 18 authoritative medical textbooks — Harrison's, Robbins, Goodman &amp; Gilman's, and more.
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <button className="btn-auth-google" onClick={signInGoogle}>
-              <svg width="16" height="16" viewBox="0 0 24 24">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-              </svg>
-              Continue with Google
-            </button>
-            <div className="auth-divider" />
-            <button className="btn-auth-dev" onClick={bypassAuth}>
-              ⚙ Bypass Auth (Local Dev)
-            </button>
-          </div>
-          <div className="auth-note">
-            Authenticated sessions only. Your queries are not stored in external servers during local development.
+
+          {/* Tab Switcher */}
+          {authMode !== 'forgot' && (
+            <div className="auth-tabs">
+              <button
+                className={`auth-tab ${authMode === 'signin' ? 'active' : ''}`}
+                onClick={() => switchAuthMode('signin')}
+              >Sign in</button>
+              <button
+                className={`auth-tab ${authMode === 'signup' ? 'active' : ''}`}
+                onClick={() => switchAuthMode('signup')}
+              >Create account</button>
+            </div>
+          )}
+
+          {/* Google Button */}
+          {authMode !== 'forgot' && (
+            <>
+              <button className="btn-auth-google" onClick={signInGoogle} disabled={authLoading}>
+                <svg width="16" height="16" viewBox="0 0 24 24">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                </svg>
+                Continue with Google
+              </button>
+              <div className="auth-or"><span>or</span></div>
+            </>
+          )}
+
+          {/* Sign In Form */}
+          {authMode === 'signin' && (
+            <form onSubmit={signInEmail} className="auth-form">
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="signin-email">Email</label>
+                <input
+                  id="signin-email"
+                  type="email" required
+                  className="auth-input"
+                  placeholder="you@example.com"
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                />
+              </div>
+              <div className="auth-field">
+                <div className="auth-label-row">
+                  <label className="auth-label" htmlFor="signin-password">Password</label>
+                  <button type="button" className="auth-link" onClick={() => switchAuthMode('forgot')}>
+                    Forgot password?
+                  </button>
+                </div>
+                <input
+                  id="signin-password"
+                  type="password" required
+                  className="auth-input"
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)}
+                />
+              </div>
+              {authError && <div className="auth-error">{authError}</div>}
+              <button type="submit" className="btn-auth-primary" disabled={authLoading}>
+                {authLoading ? 'Signing in…' : 'Sign in'}
+              </button>
+            </form>
+          )}
+
+          {/* Sign Up Form */}
+          {authMode === 'signup' && (
+            <form onSubmit={signUpEmail} className="auth-form">
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="signup-email">Email</label>
+                <input
+                  id="signup-email"
+                  type="email" required
+                  className="auth-input"
+                  placeholder="you@example.com"
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                />
+              </div>
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="signup-password">Password</label>
+                <input
+                  id="signup-password"
+                  type="password" required
+                  className="auth-input"
+                  placeholder="Min. 8 characters"
+                  value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)}
+                />
+              </div>
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="signup-confirm">Confirm password</label>
+                <input
+                  id="signup-confirm"
+                  type="password" required
+                  className="auth-input"
+                  placeholder="••••••••"
+                  value={authConfirm}
+                  onChange={e => setAuthConfirm(e.target.value)}
+                />
+              </div>
+              {authError && <div className="auth-error">{authError}</div>}
+              {authSuccess && <div className="auth-success">{authSuccess}</div>}
+              <button type="submit" className="btn-auth-primary" disabled={authLoading}>
+                {authLoading ? 'Creating account…' : 'Create account'}
+              </button>
+            </form>
+          )}
+
+          {/* Forgot Password Form */}
+          {authMode === 'forgot' && (
+            <form onSubmit={sendPasswordReset} className="auth-form">
+              <button type="button" className="auth-back" onClick={() => switchAuthMode('signin')}>
+                ← Back to sign in
+              </button>
+              <div className="auth-title" style={{ marginTop: '16px' }}>Reset your password</div>
+              <div className="auth-subtitle" style={{ marginBottom: '20px' }}>
+                Enter your account email and we'll send a reset link.
+              </div>
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="forgot-email">Email</label>
+                <input
+                  id="forgot-email"
+                  type="email" required
+                  className="auth-input"
+                  placeholder="you@example.com"
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                />
+              </div>
+              {authError && <div className="auth-error">{authError}</div>}
+              {authSuccess && <div className="auth-success">{authSuccess}</div>}
+              <button type="submit" className="btn-auth-primary" disabled={authLoading}>
+                {authLoading ? 'Sending…' : 'Send reset link'}
+              </button>
+            </form>
+          )}
+
+          {/* Dev bypass */}
+          <div className="auth-dev-row">
+            <button className="btn-auth-dev" onClick={bypassAuth}>⚙ Local Dev Bypass</button>
           </div>
         </div>
       </div>
     );
   }
+
 
   // ── Main App ────────────────────────────────────────────
   return (
@@ -243,7 +444,6 @@ function App() {
       <header className="topbar">
         <div className="topbar-left">
           <div className="logo">
-            <div className="logo-mark">M</div>
             <span className="logo-name">MedAtlas</span>
           </div>
           <div className="topbar-divider" />
@@ -332,10 +532,6 @@ function App() {
           ) : (
             messages.map((msg, i) => (
               <div key={i} className={`message-row ${msg.role}`}>
-                <div className={`msg-label ${msg.role === 'user' ? 'user-label' : 'assist-label'}`}>
-                  <span className="msg-label-dot" />
-                  {msg.role === 'user' ? 'You' : 'MedAtlas'}
-                </div>
                 <div className="msg-body">
                   {msg.role === 'assistant' && msg.refused ? (
                     <div className="refusal-block">
