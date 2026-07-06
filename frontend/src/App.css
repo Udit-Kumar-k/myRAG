@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   MedAtlas — Design System
+   NyayBot — Design System
    Clean, boxy, professional. No rounded-corner AI slop.
 ═══════════════════════════════════════════════════════ */
 
@@ -554,9 +554,11 @@ body {
   flex-shrink: 0;
 }
 
-.ns-basic_sciences    { background: var(--blue-dim);   color: var(--blue);  border: 1px solid var(--blue-border); }
-.ns-pharmacology      { background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3); }
-.ns-clinical_medicine { background: rgba(34,197,94,0.08); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+.ns-criminal  { background: var(--blue-dim);   color: var(--blue);  border: 1px solid var(--blue-border); }
+.ns-cyber     { background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3); }
+.ns-consumer  { background: rgba(34,197,94,0.08); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+.ns-banking   { background: rgba(245,158,11,0.08); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+.ns-general   { background: rgba(113,113,122,0.08); color: var(--text-1); border: 1px solid rgba(113,113,122,0.25); }
 
 .citation-name {
   font-size: 12px;

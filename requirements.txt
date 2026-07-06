@@ -1,7 +1,8 @@
-# MedAtlas backend dependencies
+# NyayBot backend dependencies
 # Loose pins (~=) allow compatible patches but guard against major version breakage.
 
 datasets~=3.0
+pymupdf~=1.24
 faiss-cpu~=1.9
 sentence-transformers~=3.3
 rank-bm25~=0.2

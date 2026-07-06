@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     global rag_pipeline, rag_chain
     success = index_manager.load_indexes()
     if not success:
-        print("WARNING: MedAtlas indexes could not be loaded on startup.")
+        print("WARNING: NyayBot indexes could not be loaded on startup.")
     threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
     rag_pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=threshold)
     
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic can go here if needed
 
 # Initialize FastAPI Web Application
-app = FastAPI(title="MedAtlas API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="NyayBot API", version="2.0.0", lifespan=lifespan)
 
 # CORS Setup
 app.add_middleware(
@@ -273,7 +273,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         })
         
     if refused:
-        answer = "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed."
+        answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
     else:
         # 2. Fetch past conversation history for LangChain context window
         database_url = os.environ.get("DATABASE_URL")

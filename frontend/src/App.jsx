@@ -5,9 +5,11 @@ import './App.css';
 const API_BASE_URL = 'http://localhost:8001';
 
 const NS_LABELS = {
-  basic_sciences:    'Basic Sciences',
-  pharmacology:      'Pharmacology',
-  clinical_medicine: 'Clinical Medicine',
+  criminal: 'Criminal Law',
+  cyber:    'Cyber Law',
+  consumer: 'Consumer Law',
+  banking:  'Banking Law',
+  general:  'General',
 };
 
 // fetchWithTimeout — prevents UI from hanging forever
@@ -59,10 +61,10 @@ function App() {
         window.history.replaceState(null, '', window.location.pathname);
       }
       // Push a sentinel state and lock the back button while logged in
-      window.history.pushState({ medatlas: true }, '', window.location.pathname);
+      window.history.pushState({ nyaybot: true }, '', window.location.pathname);
       const handlePopState = () => {
         // Always push forward — prevents navigating away while authenticated
-        window.history.pushState({ medatlas: true }, '', window.location.pathname);
+        window.history.pushState({ nyaybot: true }, '', window.location.pathname);
       };
       window.addEventListener('popstate', handlePopState);
       checkHealth();
@@ -256,7 +258,7 @@ function App() {
   };
 
   const bypassAuth = () => {
-    setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'dev@medatlas.local', user_metadata: { full_name: 'Dev User' } });
+    setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'dev@nyaybot.local', user_metadata: { full_name: 'Dev User' } });
     setToken('mock-token');
   };
 
@@ -281,10 +283,10 @@ function App() {
         <div className="auth-card">
           {/* Header */}
           <div className="auth-logo">
-            <span className="auth-logo-name">MedAtlas</span>
+            <span className="auth-logo-name">NyayBot</span>
           </div>
           <div className="auth-subtitle">
-            Grounded in 18 authoritative medical textbooks — Harrison's, Robbins, Goodman &amp; Gilman's, and more.
+            Grounded in Indian statutory law — BNS, BNSS, BSA, IT Act, Consumer Protection Act, and more.
           </div>
 
           {/* Tab Switcher */}
@@ -444,10 +446,10 @@ function App() {
       <header className="topbar">
         <div className="topbar-left">
           <div className="logo">
-            <span className="logo-name">MedAtlas</span>
+            <span className="logo-name">NyayBot</span>
           </div>
           <div className="topbar-divider" />
-          <span className="topbar-subtitle">Medical Textbook Knowledge Assistant</span>
+          <span className="topbar-subtitle">Indian Legal Awareness Assistant</span>
         </div>
         <div className="topbar-right">
           <div className={`status-pill ${backendStatus}`}>
@@ -496,7 +498,7 @@ function App() {
             <strong>{user.user_metadata?.full_name || user.email}</strong>
           </div>
           <div className="sidebar-info-row">
-            <span>Sources: 18 indexed textbooks</span>
+            <span>Sources: Indian statutory law corpus</span>
           </div>
           <div className="sidebar-info-row">
             <span>Confidence gate enforced</span>
@@ -509,14 +511,14 @@ function App() {
         <div className="messages-area">
           {messages.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">🩺</div>
-              <h2>Ask a medical question</h2>
-              <p>Answers are grounded in authoritative textbooks. Queries with insufficient evidence are refused.</p>
+              <div className="empty-icon">⚖️</div>
+              <h2>Ask a legal question</h2>
+              <p>Answers are grounded in Indian statutory law. Queries with insufficient evidence are refused.</p>
               <div className="suggestions">
                 {[
-                  ['BIOCHEM', 'Rate-limiting enzyme of glycolysis?'],
-                  ['PHARM',   'Mechanism of action of metformin in T2DM?'],
-                  ['CLINICAL','Inferior MI — which coronary artery is occluded?'],
+                  ['BNS',      'What does BNS say about cybercrime?'],
+                  ['CONSUMER', 'My landlord is not returning my deposit'],
+                  ['CYBER',    'Someone sent me a fake UPI screenshot, what law applies?'],
                 ].map(([tag, text]) => (
                   <button
                     key={tag}
@@ -542,8 +544,8 @@ function App() {
                         Insufficient Grounding
                       </div>
                       <div className="refusal-text">{msg.content}</div>
-                      <a href="https://www.ncbi.nlm.nih.gov/books/" target="_blank" rel="noopener noreferrer" className="refusal-link">
-                        Search NCBI Bookshelf →
+                      <a href="https://indiacode.nic.in" target="_blank" rel="noopener noreferrer" className="refusal-link">
+                        Search India Code →
                       </a>
                     </div>
                   ) : (
@@ -606,7 +608,7 @@ function App() {
                 <div className="loading-dots">
                   <span /><span /><span />
                 </div>
-                <span className="loading-text">Searching textbooks… (first query loads AI model, may take 1-2 min)</span>
+                <span className="loading-text">Searching legal corpus… (first query loads AI model, may take 1-2 min)</span>
               </div>
             </div>
           )}
@@ -619,7 +621,7 @@ function App() {
             <textarea
               ref={inputRef}
               className="chat-input"
-              placeholder="Ask about anatomy, pharmacology, or clinical medicine…"
+              placeholder="Ask about criminal law, cyber law, consumer rights…"
               value={inputValue}
               onChange={e => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}

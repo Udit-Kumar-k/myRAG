@@ -16,7 +16,7 @@ class MedicalIndexManager:
     def __init__(self, index_dir: str = "data/indexes", model_name: str = "BAAI/bge-m3"):
         self.index_dir = index_dir
         self.model_name = model_name
-        self.namespaces = ["basic_sciences", "pharmacology", "clinical_medicine"]
+        self.namespaces = ["criminal", "cyber", "consumer", "banking", "general"]
         
         # In-memory storage for loaded indexes
         self.chunks: Dict[str, List[Dict[str, Any]]] = {}
@@ -30,10 +30,11 @@ class MedicalIndexManager:
         """Lazy loads the BGE-M3 embedding model, using GPU when available."""
         if self.model is None:
             import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = os.environ.get("EMBEDDING_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
             print(f"Loading embedding model {self.model_name} on device={device}...")
             from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer(self.model_name, device=device)
+            self.model.max_seq_length = 512  # restrict sequence length to save memory
             print("Model loaded successfully.")
         return self.model
 
@@ -48,8 +49,8 @@ class MedicalIndexManager:
             if ns in ns_chunks:
                 ns_chunks[ns].append(chunk)
             else:
-                # Fallback to clinical_medicine if namespace is unrecognized
-                ns_chunks["clinical_medicine"].append(chunk)
+                # Fallback to general if namespace is unrecognized
+                ns_chunks["general"].append(chunk)
 
         model = self.load_embedding_model()
         import faiss
@@ -79,18 +80,20 @@ class MedicalIndexManager:
             texts = [chunk["text"] for chunk in chunks]
             
             # Encode in batches to prevent OOM
+            import torch
             embeddings = []
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i : i + batch_size]
-                # Normalize embeddings so cosine similarity = inner product (dot product)
-                batch_embeds = model.encode(
-                    batch_texts, 
-                    normalize_embeddings=True, 
-                    show_progress_bar=False
-                )
-                embeddings.append(batch_embeds)
-                if (i + len(batch_texts)) % 1024 == 0 or i + len(batch_texts) == len(texts):
-                    print(f"Embedded {i + len(batch_texts)}/{len(texts)} chunks...")
+            with torch.no_grad():
+                for i in range(0, len(texts), batch_size):
+                    batch_texts = texts[i : i + batch_size]
+                    # Normalize embeddings so cosine similarity = inner product (dot product)
+                    batch_embeds = model.encode(
+                        batch_texts, 
+                        normalize_embeddings=True, 
+                        show_progress_bar=False
+                    )
+                    embeddings.append(batch_embeds)
+                    if (i + len(batch_texts)) % 1024 == 0 or i + len(batch_texts) == len(texts):
+                        print(f"Embedded {i + len(batch_texts)}/{len(texts)} chunks...")
             
             embeddings = np.vstack(embeddings).astype('float32')
             
@@ -164,9 +167,9 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
 
-    from src.backend.ingestion import process_corpus  # now loads MedRAG/textbooks
+    from src.backend.ingestion import process_corpus
 
-    print("=== MedAtlas Index Generation Pipeline ===")
+    print("=== NyayBot Index Generation Pipeline ===")
 
     hf_token = os.environ.get("HF_TOKEN")
     if hf_token == "your_huggingface_token_here" or not hf_token:

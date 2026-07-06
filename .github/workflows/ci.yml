@@ -1,4 +1,4 @@
-name: MedAtlas CI/CD Pipeline
+name: NyayBot CI/CD Pipeline
 
 on:
   push:

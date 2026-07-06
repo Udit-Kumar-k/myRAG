@@ -184,6 +184,519 @@
         "confidence_score": 0.7290512311483943,
         "refused": false,
         "namespace_searched": "basic_sciences"
+      },
+      {
+        "message_id": "94911e85-76ba-4f96-bd2a-e39deeb408a4",
+        "timestamp": 1782663113.7772064,
+        "role": "user",
+        "content": "what are its steps in detail",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "4de705b4-7219-4dbc-bd6b-45e67aa179e9",
+        "timestamp": 1782663113.802731,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.5272720301456053,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "2ba7d059-3953-4560-b50d-dff7676d3cbb",
+        "timestamp": 1782663164.964363,
+        "role": "user",
+        "content": "What is the rate-limiting enzyme of the urea cycle and what is its allosteric activator?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "782959e1-16b1-4ce6-99f8-9fc2541b9f4a",
+        "timestamp": 1782663164.9980485,
+        "role": "assistant",
+        "content": "The rate-limiting enzyme of the urea cycle is Carbamoyl Phosphate Synthetase I (CPS I) [Biochemistry_Lippinco]. Its allosteric activator is N-Acetylglutamate (NAG) [Biochemistry_Lippinco]. NAG increases the affinity of CPS I for ATP, thereby activating the enzyme and facilitating the urea cycle [Biochemistry_Lippinco]. NAG is synthesized from acetyl CoA and glutamate by N-acetylglutamate synthase (NAGS), and arginine acts as an activator for this reaction [Biochemistry_Lippinco].\n\nThis information is from educational medical textbooks and should not replace consultation with a licensed medical professional.",
+        "sources": [
+          {
+            "document_name": "Biochemistry_Lippinco",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.6790060955159098
+          },
+          {
+            "document_name": "Biochemistry_Lippinco",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.648295553739752
+          },
+          {
+            "document_name": "Biochemistry_Lippinco",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5791925186012755
+          },
+          {
+            "document_name": "Biochemistry_Lippinco",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5748696880019487
+          },
+          {
+            "document_name": "Cell_Biology_Alberts",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5439377688995516
+          }
+        ],
+        "confidence_score": 0.6790060955159098,
+        "refused": false,
+        "namespace_searched": "basic_sciences"
+      },
+      {
+        "message_id": "fce0aa81-36b3-4958-ad71-4f6a253138f8",
+        "timestamp": 1782663252.5189917,
+        "role": "user",
+        "content": "If a patient presents with hyperammonemia and is found to have arginase deficiency, how does that specifically impair the activity of the enzyme we just discussed?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "5d7c5294-91f9-436a-a026-985c7a37dd69",
+        "timestamp": 1782663252.558479,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.0,
+        "refused": true,
+        "namespace_searched": "clinical_medicine"
+      },
+      {
+        "message_id": "7fd5c19c-d0c5-452e-93ed-62745530351d",
+        "timestamp": 1782663358.5403993,
+        "role": "user",
+        "content": "What is the exact recommended IV ammonium acetate infusion rate (in mg/kg/hour) for acute hyperammonemia management in a neonate with urea cycle defects, per Harrison's or Robbins?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "d8d590f6-7f2b-4d22-a801-308a68b8ef13",
+        "timestamp": 1782663358.5934439,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.0,
+        "refused": true,
+        "namespace_searched": "clinical_medicine"
+      },
+      {
+        "message_id": "ff471055-799f-4551-9fbc-9fb049148ab3",
+        "timestamp": 1782663420.1239939,
+        "role": "user",
+        "content": "What is the precise Km value (in \u03bcM) of carbamoyl phosphate synthetase I for its ammonia substrate, as cited in a biochemistry textbook?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "21b5d8c5-f138-4877-9a3d-dc5ead751f72",
+        "timestamp": 1782663420.1670516,
+        "role": "assistant",
+        "content": "I do not have sufficient information in the indexed medical textbooks to answer this question with certainty. The provided textbook context does not mention the precise Km value of carbamoyl phosphate synthetase I for its ammonia substrate [Biochemistry_Lippinco, Cell_Biology_Alberts].\n\nThis information is from educational medical textbooks and should not replace consultation with a licensed medical professional.",
+        "sources": [
+          {
+            "document_name": "Biochemistry_Lippinco",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.6770143434438611
+          },
+          {
+            "document_name": "Cell_Biology_Alberts",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5925358118955233
+          },
+          {
+            "document_name": "Cell_Biology_Alberts",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5896906654122003
+          },
+          {
+            "document_name": "Biochemistry_Lippinco",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5696922594430106
+          },
+          {
+            "document_name": "Cell_Biology_Alberts",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5438002320772207
+          }
+        ],
+        "confidence_score": 0.6770143434438611,
+        "refused": false,
+        "namespace_searched": "basic_sciences"
+      },
+      {
+        "message_id": "7750a35f-919f-4426-aece-f409fb0df727",
+        "timestamp": 1782663564.8773193,
+        "role": "user",
+        "content": "What is the specific activity (in nmol/min/mg protein) of N-acetylglutamate synthase in rat liver mitochondria under saturating arginine concentrations, as reported in biochemistry literature?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "8f777f3f-4135-4add-a446-5824c3484dcc",
+        "timestamp": 1782663564.909782,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.5451595350154805,
+        "refused": true,
+        "namespace_searched": "basic_sciences"
+      },
+      {
+        "message_id": "2f782993-42ca-432e-8303-495b898f7b53",
+        "timestamp": 1782664123.5984933,
+        "role": "user",
+        "content": "What does First Aid 2023 say about the urea cycle defects table on page 74?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "8fb58315-93ad-4afa-9105-34c6425edfa6",
+        "timestamp": 1782664123.6343813,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.5612333982995753,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "1ca05cea-b57e-48cf-bc26-cdf6a8ed85c1",
+        "timestamp": 1782664139.9401164,
+        "role": "user",
+        "content": "I have a patient with hypoalbuminemia, massive proteinuria, and periorbital edema \u2014 which textbook syndrome does this match and what is the pathophysiology?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "3a287c3e-33bd-4f04-b377-61622d36e450",
+        "timestamp": 1782664139.9791384,
+        "role": "assistant",
+        "content": "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed.",
+        "sources": [],
+        "confidence_score": 0.0,
+        "refused": true,
+        "namespace_searched": "clinical_medicine"
+      },
+      {
+        "message_id": "9baab52c-ece5-4f9e-a5b7-d4b4ecbf7f1b",
+        "timestamp": 1782664231.1162367,
+        "role": "user",
+        "content": "Which nerve passes through the parotid gland without synapsing?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "184f55b4-1554-431a-b288-6765ca221a0a",
+        "timestamp": 1782664231.141756,
+        "role": "assistant",
+        "content": "The facial nerve (cranial nerve VII) passes through the parotid gland [Histology_Ross, Anatomy_Gray]. \n\nThis information is from educational medical textbooks and should not replace consultation with a licensed medical professional.",
+        "sources": [
+          {
+            "document_name": "Histology_Ross",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.691237707662457
+          },
+          {
+            "document_name": "Histology_Ross",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.6436134511292803
+          },
+          {
+            "document_name": "Anatomy_Gray",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.605779525161191
+          },
+          {
+            "document_name": "Anatomy_Gray",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.601648165545394
+          },
+          {
+            "document_name": "Anatomy_Gray",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.578596036531953
+          }
+        ],
+        "confidence_score": 0.691237707662457,
+        "refused": false,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "b68539d3-1b2b-4cbf-8da8-91b92ded7c87",
+        "timestamp": 1782664395.4829152,
+        "role": "user",
+        "content": "Which nerve passes through the parotid gland without synapsing? what are the details and information about it",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "09f6e898-f659-4697-8600-c4d0249190bb",
+        "timestamp": 1782664395.514107,
+        "role": "assistant",
+        "content": "The facial nerve (cranial nerve VII) passes through the parotid gland without synapsing [Histology_Ross, Anatomy_Gray]. The main stem of the facial nerve usually divides into upper (temporofacial) and lower (cervicofacial) branches within the gland [Anatomy_Gray]. As these branches pass through the substance of the parotid gland, they may branch further or take part in an anastomotic network (the parotid plexus) [Anatomy_Gray]. Five terminal groups of branches of the facial nerve\u2014temporal, zygomatic, buccal, marginal mandibular, and cervical branches\u2014emerge from the parotid gland [Anatomy_Gray]. \n\nThe facial nerve provides motor innervation to the muscles of facial expression [Anatomy_Gray]. The parotid gland also receives sensory innervation from the auriculotemporal nerve, a branch of the mandibular nerve (V3), which is a division of the trigeminal nerve [Anatomy_Gray]. \n\nThis information is from educational medical textbooks and should not replace consultation with a licensed medical professional.",
+        "sources": [
+          {
+            "document_name": "Histology_Ross",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.698989869110343
+          },
+          {
+            "document_name": "Histology_Ross",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.66599302083868
+          },
+          {
+            "document_name": "Anatomy_Gray",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.6076075087833411
+          },
+          {
+            "document_name": "Anatomy_Gray",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.6025371670537479
+          },
+          {
+            "document_name": "Anatomy_Gray",
+            "geography_iso": "basic_sciences",
+            "pub_year": 2020,
+            "namespace": "basic_sciences",
+            "source_url": "https://huggingface.co/datasets/MedRAG/textbooks",
+            "relevance_score": 0.5946000084349395
+          }
+        ],
+        "confidence_score": 0.698989869110343,
+        "refused": false,
+        "namespace_searched": "all"
+      }
+    ],
+    "test_conv_abc": [
+      {
+        "message_id": "e02b6c3e-cec3-4a9f-9d68-202e046298f2",
+        "timestamp": 1783320136.394323,
+        "role": "user",
+        "content": "Who is the prime minister of France?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "bbc5aed0-fa28-4f76-b03f-d78b2742ed3c",
+        "timestamp": 1783320136.4463115,
+        "role": "assistant",
+        "content": "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "f4abdd45-05e3-4579-bd15-5f59e58ca140",
+        "timestamp": 1783320136.5473104,
+        "role": "user",
+        "content": "What is the punishment for murder under BNS?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "c0ff6ea9-d183-40e5-a753-25dedb3826c0",
+        "timestamp": 1783320136.5978224,
+        "role": "assistant",
+        "content": "Under BNS Section 103, the punishment for murder is imprisonment for life or death, along with a fine.",
+        "sources": [
+          {
+            "document_name": "Bharatiya Nyaya Sanhita 2023",
+            "geography_iso": "criminal",
+            "pub_year": 2023,
+            "namespace": "criminal",
+            "source_url": "https://indiacode.nic.in",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "criminal"
+      },
+      {
+        "message_id": "ee19cfe3-7db3-4cff-8f9d-f356d015f72c",
+        "timestamp": 1783320303.0820677,
+        "role": "user",
+        "content": "Who is the prime minister of France?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "041d7395-c929-4459-abfb-24e438807789",
+        "timestamp": 1783320303.1107516,
+        "role": "assistant",
+        "content": "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "e10721ed-a6b5-4e1a-a731-c3ab7cf402ab",
+        "timestamp": 1783320303.160829,
+        "role": "user",
+        "content": "What is the punishment for murder under BNS?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "01e003dc-be65-44e5-a117-376bcf0088da",
+        "timestamp": 1783320303.19795,
+        "role": "assistant",
+        "content": "Under BNS Section 103, the punishment for murder is imprisonment for life or death, along with a fine.",
+        "sources": [
+          {
+            "document_name": "Bharatiya Nyaya Sanhita 2023",
+            "geography_iso": "criminal",
+            "pub_year": 2023,
+            "namespace": "criminal",
+            "source_url": "https://indiacode.nic.in",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "criminal"
+      },
+      {
+        "message_id": "529b420f-3919-4b41-9709-9d0758f9d690",
+        "timestamp": 1783331037.246881,
+        "role": "user",
+        "content": "Who is the prime minister of France?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "05098252-5107-476e-9858-e227429d808e",
+        "timestamp": 1783331037.2859573,
+        "role": "assistant",
+        "content": "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in.",
+        "sources": [],
+        "confidence_score": 0.15,
+        "refused": true,
+        "namespace_searched": "all"
+      },
+      {
+        "message_id": "8385b53a-5846-4e69-92c4-4a6f854cca7f",
+        "timestamp": 1783331037.391204,
+        "role": "user",
+        "content": "What is the punishment for murder under BNS?",
+        "sources": [],
+        "confidence_score": null,
+        "refused": false,
+        "namespace_searched": null
+      },
+      {
+        "message_id": "d4a00ed3-afef-4a6c-848e-acb85b176e47",
+        "timestamp": 1783331037.4271703,
+        "role": "assistant",
+        "content": "Under BNS Section 103, the punishment for murder is imprisonment for life or death, along with a fine.",
+        "sources": [
+          {
+            "document_name": "Bharatiya Nyaya Sanhita 2023",
+            "geography_iso": "criminal",
+            "pub_year": 2023,
+            "namespace": "criminal",
+            "source_url": "https://indiacode.nic.in",
+            "relevance_score": 0.85
+          }
+        ],
+        "confidence_score": 0.85,
+        "refused": false,
+        "namespace_searched": "criminal"
       }
     ]
   }

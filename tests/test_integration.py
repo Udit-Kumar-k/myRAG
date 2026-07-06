@@ -24,34 +24,34 @@ class TestIntegrationEndpoints(unittest.TestCase):
     def test_query_endpoint_success(self, mock_chain, mock_pipeline):
         # Configure pipeline mock for a successful query
         mock_pipeline.query.return_value = {
-            "query": "What is the first-line treatment for pneumonia?",
+            "query": "What is the punishment for murder under BNS?",
             "refused": False,
             "confidence_score": 0.85,
-            "namespace_searched": "clinical_medicine",
+            "namespace_searched": "criminal",
             "retrieved_chunks": [
                 {
-                    "text": "First-line treatment for community-acquired pneumonia is amoxicillin.",
+                    "text": "Section 103 of BNS prescribes punishment for murder with imprisonment for life or death.",
                     "relevance_score": 0.85,
                     "metadata": {
-                        "document_name": "Nelson Pediatrics",
-                        "geography_iso": "clinical_medicine",
-                        "pub_year": 2021,
-                        "namespace": "clinical_medicine",
-                        "source_url": "https://ncbi.nlm.nih.gov/books"
+                        "document_name": "Bharatiya Nyaya Sanhita 2023",
+                        "geography_iso": "criminal",
+                        "pub_year": 2023,
+                        "namespace": "criminal",
+                        "source_url": "https://indiacode.nic.in"
                     }
                 }
             ]
         }
         
         # Configure chain mock
-        mock_chain.run.return_value = "First-line treatment for community-acquired pneumonia is amoxicillin as stated in Nelson Pediatrics."
+        mock_chain.run.return_value = "Under BNS Section 103, the punishment for murder is imprisonment for life or death, along with a fine."
         
         # Make the request to FastAPI
         # Header has bearer token, which activates mock auth test_user_123
         response = client.post(
             "/query",
             json={
-                "question": "What is the first-line treatment for pneumonia?",
+                "question": "What is the punishment for murder under BNS?",
                 "conversation_id": "test_conv_abc"
             },
             headers={"Authorization": "Bearer mock-token"}
@@ -61,9 +61,9 @@ class TestIntegrationEndpoints(unittest.TestCase):
         data = response.json()
         self.assertFalse(data["refused"])
         self.assertEqual(data["confidence_score"], 0.85)
-        self.assertIn("pneumonia", data["answer"])
+        self.assertIn("BNS", data["answer"])
         self.assertEqual(len(data["sources"]), 1)
-        self.assertEqual(data["sources"][0]["geography_iso"], "clinical_medicine")
+        self.assertEqual(data["sources"][0]["geography_iso"], "criminal")
 
     @patch("src.backend.main.rag_pipeline")
     def test_query_endpoint_refusal(self, mock_pipeline):
@@ -90,13 +90,13 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertTrue(data["refused"])
         self.assertEqual(data["confidence_score"], 0.15)
         self.assertEqual(len(data["sources"]), 0)
-        self.assertIn("Insufficient evidence found in indexed medical textbooks", data["answer"])
+        self.assertIn("does not contain sufficient information", data["answer"])
 
     def test_health_endpoint(self):
         # Patch index manager to say indexes are loaded
         with patch("src.backend.main.index_manager") as mock_manager:
-            mock_manager.faiss_indexes = {"basic_sciences": {}, "pharmacology": {}, "clinical_medicine": {}}
-            mock_manager.namespaces = ["basic_sciences", "pharmacology", "clinical_medicine"]
+            mock_manager.faiss_indexes = {"criminal": {}, "cyber": {}, "consumer": {}, "banking": {}, "general": {}}
+            mock_manager.namespaces = ["criminal", "cyber", "consumer", "banking", "general"]
             
             response = client.get("/health")
             self.assertEqual(response.status_code, 200)

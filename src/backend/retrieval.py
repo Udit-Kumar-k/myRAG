@@ -5,47 +5,58 @@ from src.backend.indexing import MedicalIndexManager, tokenize_for_bm25
 
 import re
 
-# ── Medical subject namespace router ─────────────────────────────────────
+# ── Indian legal namespace router ────────────────────────────────────────
 
-BASIC_SCIENCE_KEYWORDS = [
-    "anatomy", "anatomical", "physiology", "physiological",
-    "biochemistry", "biochemical", "genetics", "genetic",
-    "enzyme", "cellular", "membrane", "action potential", "axon",
-    "neurotransmitter", "dna", "rna", "protein synthesis",
-    "mitosis", "meiosis", "embryology", "histology",
-    "krebs cycle", "glycolysis", "oxidative phosphorylation",
-    "ligament", "tendon", "cartilage", "muscle fiber", "myocyte",
+CRIMINAL_KEYWORDS = [
+    "murder", "homicide", "theft", "robbery", "dacoity", "assault",
+    "kidnapping", "abduction", "cheating", "forgery", "rape", "dowry",
+    "bail", "fir", "arrest", "chargesheet", "cognizable", "non-cognizable",
+    "bailable", "non-bailable", "imprisonment", "fine", "punishment",
+    "bns", "bnss", "bsa", "nyaya sanhita", "nagarik suraksha", "sakshya",
+    "criminal", "offence", "offense", "accused", "complainant",
+    "magistrate", "sessions court", "evidence", "witness", "confession",
+    "investigation", "prosecution", "summons", "warrant", "remand",
+    "anticipatory bail", "custody", "sentence", "death penalty",
+    "life imprisonment", "hurt", "grievous hurt", "mischief",
+    "criminal conspiracy", "attempt", "abetment",
 ]
 
-PHARMACOLOGY_KEYWORDS = [
-    "drug", "medication", "pharmacology", "pharmacokinetics",
-    "pharmacodynamics", "antibiotic", "antiviral", "antimicrobial",
-    "antifungal", "chemotherapy", "mechanism of action",
-    "drug interaction", "toxicity", "adverse effect", "side effect",
-    "penicillin", "amoxicillin", "statin", "beta blocker",
-    "ace inhibitor", "diuretic", "receptor agonist", "receptor antagonist",
-    "bacteria", "bacterium", "virus", "pathogen", "gram positive",
-    "gram negative", "pathology", "neoplasm", "tumor", "carcinoma",
-    "metastasis", "microbiology", "immunology", "antibody", "antigen",
+CYBER_KEYWORDS = [
+    "cybercrime", "cyber crime", "hacking", "phishing", "ransomware",
+    "information technology", "it act", "data protection", "privacy",
+    "identity theft", "cyber fraud", "online fraud", "social media",
+    "intermediary", "digital", "electronic", "computer", "network",
+    "data breach", "unauthorized access", "cyber terrorism",
+    "obscene content", "defamation online", "email", "website",
 ]
 
-CLINICAL_KEYWORDS = [
-    "patient", "presents", "presentation", "diagnosis",
-    "differential diagnosis", "treatment", "management", "prognosis",
-    "complication", "emergency", "physician", "clinical", "symptom",
-    "sign", "examination", "laboratory findings", "imaging", "surgery",
-    "therapy", "first-line", "year-old", "comes to the",
+CONSUMER_KEYWORDS = [
+    "consumer", "consumer protection", "defective product", "deficiency",
+    "service", "warranty", "guarantee", "refund", "compensation",
+    "unfair trade", "misleading advertisement", "consumer forum",
+    "consumer commission", "product liability", "e-commerce",
+    "goods", "services", "consumer complaint", "consumer rights",
+    "landlord", "tenant", "deposit", "rent",
+]
+
+BANKING_KEYWORDS = [
+    "rbi", "reserve bank", "banking", "bank", "loan", "interest rate",
+    "npa", "non-performing asset", "upi", "neft", "rtgs", "imps",
+    "payment", "cheque bounce", "negotiable instrument",
+    "financial fraud", "credit", "debit", "mortgage", "insurance",
+    "nbfc", "microfinance", "digital payment",
 ]
 
 
 def route_query(query: str) -> str:
     """
-    Classifies the medical query to a subject namespace.
-    Returns: 'basic_sciences', 'pharmacology', 'clinical_medicine', or 'all'.
+    Classifies a legal query to a subject namespace.
+    Returns: 'criminal', 'cyber', 'consumer', 'banking', or 'all'.
 
-    Most USMLE-style patient-scenario questions hit 'clinical_medicine';
-    pure mechanism / drug questions hit 'pharmacology';
-    structure / process questions hit 'basic_sciences'.
+    Most statutory law questions hit 'criminal' (BNS/BNSS/BSA);
+    IT Act / online questions hit 'cyber';
+    product / service complaints hit 'consumer';
+    financial / banking questions hit 'banking'.
     Ties and ambiguous queries fall back to 'all' (searches every namespace).
     """
     q_lower = query.lower()
@@ -62,14 +73,16 @@ def route_query(query: str) -> str:
                     score += 1
         return score
 
-    basic_score    = get_score(BASIC_SCIENCE_KEYWORDS)
-    pharma_score   = get_score(PHARMACOLOGY_KEYWORDS)
-    clinical_score = get_score(CLINICAL_KEYWORDS)
+    criminal_score = get_score(CRIMINAL_KEYWORDS)
+    cyber_score    = get_score(CYBER_KEYWORDS)
+    consumer_score = get_score(CONSUMER_KEYWORDS)
+    banking_score  = get_score(BANKING_KEYWORDS)
 
     scores = {
-        "basic_sciences":  basic_score,
-        "pharmacology":    pharma_score,
-        "clinical_medicine": clinical_score,
+        "criminal": criminal_score,
+        "cyber":    cyber_score,
+        "consumer": consumer_score,
+        "banking":  banking_score,
     }
 
     max_score = max(scores.values())
