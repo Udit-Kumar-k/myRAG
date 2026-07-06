@@ -1,7 +1,0 @@
-{
-  "optimal_threshold": 0.64,
-  "max_f1_score": 1.0,
-  "precision_at_optimal": 1.0,
-  "recall_at_optimal": 1.0,
-  "calibration_timestamp": 1780343062.4492133
-}
