@@ -2,9 +2,9 @@
 
 Place the following 3 PDF files in this directory before running ingestion:
 
-1. **`bns_2023.pdf`** — Bharatiya Nyaya Sanhita 2023 (replaces IPC)
-2. **`bnss_2023.pdf`** — Bharatiya Nagarik Suraksha Sanhita 2023 (replaces CrPC)
-3. **`bsa_2023.pdf`** — Bharatiya Sakshya Adhiniyam 2023 (replaces Indian Evidence Act)
+1. **`BNSag.pdf`** — Bharatiya Nyaya Sanhita 2023 (replaces IPC)
+2. **`BNSSrag.pdf`** — Bharatiya Nagarik Suraksha Sanhita 2023 (replaces CrPC)
+3. **`BSArag.pdf`** — Bharatiya Sakshya Adhiniyam 2023 (replaces Indian Evidence Act)
 
 ## Where to download
 

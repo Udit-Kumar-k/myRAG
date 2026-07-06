@@ -12,17 +12,17 @@ from src.backend.eval import EVAL_QUERIES
 
 def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Runs queries through the actual RAG pipeline and Chain."""
-    print("Running queries through the actual MedAtlas pipeline...")
-    from src.backend.indexing import MedicalIndexManager
-    from src.backend.retrieval import MedicalRAGPipeline
-    from src.backend.chain import MedicalRAGChain
+    print("Running queries through the actual NyayBot pipeline...")
+    from src.backend.indexing import LegalIndexManager
+    from src.backend.retrieval import LegalRAGPipeline
+    from src.backend.chain import LegalRAGChain
     
-    index_manager = MedicalIndexManager()
+    index_manager = LegalIndexManager()
     if not index_manager.load_indexes():
         raise ValueError("Failed to load indexes. Build them first.")
         
-    pipeline = MedicalRAGPipeline(index_manager)
-    chain = MedicalRAGChain()
+    pipeline = LegalRAGPipeline(index_manager)
+    chain = LegalRAGChain()
     
     dataset_records = []
     for item in queries:
@@ -34,7 +34,7 @@ def run_real_pipeline(queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         contexts = [c["text"] for c in retrieved_chunks]
         
         if refused:
-            answer = "Insufficient evidence found in indexed medical textbooks to confidently answer this question. Consider consulting a licensed medical professional or PubMed."
+            answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
         else:
             try:
                 answer = chain.run(q, retrieved_chunks, history=[])
@@ -126,13 +126,13 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         raise
 
 def main():
-    print("=== MedAtlas CI/CD RAGAS Eval Gate ===")
+    print("=== NyayBot CI/CD RAGAS Eval Gate ===")
     
-    # Pick 20 queries from the eval queries (first 20 single-country queries)
+    # Pick 20 queries from the eval queries
     test_queries = EVAL_QUERIES[:20]
     
     # Check if index files exist to decide between real and simulation mode
-    index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
+    index_exists = os.path.exists("data/indexes/criminal_chunks.pkl")
     if not index_exists:
         raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
         

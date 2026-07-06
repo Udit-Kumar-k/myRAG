@@ -13,14 +13,14 @@ from supabase import create_client, Client
 load_dotenv()
 
 # Import project modules
-from src.backend.indexing import MedicalIndexManager
-from src.backend.retrieval import MedicalRAGPipeline
-from src.backend.chain import MedicalRAGChain
+from src.backend.indexing import LegalIndexManager
+from src.backend.retrieval import LegalRAGPipeline
+from src.backend.chain import LegalRAGChain
 
 # -------------------------------------------------------------
 # PIPELINE GLOBALS (declared here so lifespan can reference them)
 # -------------------------------------------------------------
-index_manager = MedicalIndexManager()
+index_manager = LegalIndexManager()
 rag_pipeline = None
 rag_chain = None
 
@@ -32,18 +32,18 @@ async def lifespan(app: FastAPI):
     if not success:
         print("WARNING: NyayBot indexes could not be loaded on startup.")
     threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
-    rag_pipeline = MedicalRAGPipeline(index_manager, confidence_threshold=threshold)
+    rag_pipeline = LegalRAGPipeline(index_manager, confidence_threshold=threshold)
     
-    # Pre-load heavy models on startup to prevent slow first query timeouts on CPU
+    # Pre-load the embedding model on startup to prevent slow first-query timeouts.
+    # NOTE: The reranker is NOT pre-loaded here — it loads lazily on first query.
+    # Loading both BGE-M3 and BGE-Reranker simultaneously on CPU exceeds 8 GB RAM.
     try:
         print("Pre-loading embedding model...")
         index_manager.load_embedding_model()
-        print("Pre-loading reranker model...")
-        rag_pipeline.load_reranker()
     except Exception as e:
-        print(f"WARNING: Error pre-loading models: {e}")
+        print(f"WARNING: Error pre-loading embedding model: {e}")
 
-    rag_chain = MedicalRAGChain()
+    rag_chain = LegalRAGChain()
     yield  # application runs here
     # Shutdown logic can go here if needed
 
@@ -230,7 +230,7 @@ class QueryRequest(BaseModel):
 
 class SourceMetadata(BaseModel):
     document_name: str
-    geography_iso: str
+    legal_domain: str
     pub_year: int
     namespace: str
     source_url: str
@@ -265,10 +265,10 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         meta = chunk["metadata"]
         sources.append({
             "document_name": meta["document_name"],
-            "geography_iso": meta["geography_iso"],
-            "pub_year": meta["pub_year"],
-            "namespace": meta["namespace"],
-            "source_url": meta["source_url"],
+            "legal_domain":  meta["legal_domain"],
+            "pub_year":      meta["pub_year"],
+            "namespace":     meta["namespace"],
+            "source_url":    meta["source_url"],
             "relevance_score": chunk["relevance_score"]
         })
         
@@ -369,7 +369,7 @@ def get_conversation_history(conversation_id: str, uid: str = Depends(authentica
 def health_check():
     """Health check endpoint."""
     loaded_ns = list(index_manager.faiss_indexes.keys())
-    # Healthy if at least one namespace is loaded (clinical_medicine may not exist yet)
+    # Healthy if at least one namespace is loaded
     indexes_ready = len(loaded_ns) > 0
     return {
         "status": "healthy" if indexes_ready else "uninitialized",

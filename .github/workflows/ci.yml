@@ -30,10 +30,11 @@ jobs:
         python -m pytest tests/ -v
         
     - name: Run RAGAS eval gate simulation
-      # Only runs when GEMINI_API_KEY secret is set AND indexes exist.
+      # Only runs when GEMINI_API_KEY or GROQ_API_KEY secret is configured in repo.
       # Skip silently in bare CI runners — no GPU, no model cache, no HuggingFace indexes.
-      if: ${{ env.GEMINI_API_KEY != '' }}
+      if: ${{ secrets.GEMINI_API_KEY != '' || secrets.GROQ_API_KEY != '' }}
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: |
         python eval/run_eval_gate.py

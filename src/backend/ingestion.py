@@ -73,7 +73,7 @@ def chunk_pdf(pdf_path: str, act_name: str) -> List[Dict[str, Any]]:
                 "source":        "pdf",
                 "pub_year":      2023,
                 "source_url":    "https://indiacode.nic.in",
-                "geography_iso": namespace,
+                "legal_domain":  namespace,
             }
         })
 
@@ -140,7 +140,7 @@ def load_hf_legal_acts(
                         "source":        "huggingface",
                         "pub_year":      2020,
                         "source_url":    "https://huggingface.co/datasets/geekyrakshit/indian-legal-acts",
-                        "geography_iso": namespace,
+                        "legal_domain":  namespace,
                     }
                 })
                 namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
@@ -157,7 +157,7 @@ def load_hf_legal_acts(
                     "source":        "huggingface",
                     "pub_year":      2020,
                     "source_url":    "https://huggingface.co/datasets/geekyrakshit/indian-legal-acts",
-                    "geography_iso": namespace,
+                    "legal_domain":  namespace,
                 }
             })
             namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1

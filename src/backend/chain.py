@@ -82,8 +82,7 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
     return "\n\n".join(formatted)
 
 
-# ── MedicalRAGChain class body is identical — only imports differ ──────────
-class MedicalRAGChain:
+class LegalRAGChain:
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
         if api_key:

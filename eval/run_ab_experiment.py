@@ -185,21 +185,21 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
     }
 
 def main():
-    print("=== MedAtlas A/B Comparison Experiment ===")
+    print("=== NyayBot A/B Comparison Experiment ===")
     
-    index_exists = os.path.exists("data/indexes/basic_sciences_chunks.pkl")
+    index_exists = os.path.exists("data/indexes/criminal_chunks.pkl")
     if not index_exists:
         raise ValueError("Failed to load indexes. Build them first using: python -m src.backend.indexing")
         
-    from src.backend.indexing import MedicalIndexManager
-    from src.backend.retrieval import MedicalRAGPipeline
-    from src.backend.chain import MedicalRAGChain
+    from src.backend.indexing import LegalIndexManager
+    from src.backend.retrieval import LegalRAGPipeline
+    from src.backend.chain import LegalRAGChain
     
     print("Loading indexes and pipeline for actual runs...")
-    index_manager = MedicalIndexManager()
+    index_manager = LegalIndexManager()
     index_manager.load_indexes()
-    pipeline = MedicalRAGPipeline(index_manager)
-    chain = MedicalRAGChain()
+    pipeline = LegalRAGPipeline(index_manager)
+    chain = LegalRAGChain()
     
     results = []
     for i in range(1, 6):
@@ -214,8 +214,8 @@ def main():
     os.makedirs("data", exist_ok=True)
     md_path = "data/ab_comparison_results.md"
     with open(md_path, "w") as f:
-        f.write("# MedAtlas A/B Comparison Experiment Results\n\n")
-        f.write("This table compares the performance metrics of the MedAtlas retrieval pipeline across 5 configurations.\n\n")
+        f.write("# NyayBot A/B Comparison Experiment Results\n\n")
+        f.write("This table compares the performance metrics of the NyayBot retrieval pipeline across 5 configurations.\n\n")
         
         headers = ["Configuration", "Context Recall", "RAGAS Faithfulness", "Refusal Rate", "Avg Latency (s)"]
         f.write("| " + " | ".join(headers) + " |\n")

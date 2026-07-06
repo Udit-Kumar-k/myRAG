@@ -1,23 +1,23 @@
 import unittest
 from unittest.mock import MagicMock
-from src.backend.retrieval import MedicalRAGPipeline
+from src.backend.retrieval import LegalRAGPipeline
 
 class TestRetrievalPipeline(unittest.TestCase):
     def setUp(self):
         # Create pipeline with mocked index manager
         self.mock_index_manager = MagicMock()
         self.mock_index_manager.namespaces = ["criminal", "cyber", "consumer", "banking", "general"]
-        self.pipeline = MedicalRAGPipeline(self.mock_index_manager, confidence_threshold=0.65)
+        self.pipeline = LegalRAGPipeline(self.mock_index_manager, confidence_threshold=0.65)
 
     def test_rrf_merge_ranking(self):
         # Create sample dense and sparse results
         dense_results = [
-            ({"text": "Section 103 of BNS defines punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "geography_iso": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 0),
-            ({"text": "Section 303 of BNS covers theft provisions.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "geography_iso": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 1),
+            ({"text": "Section 103 of BNS defines punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 0),
+            ({"text": "Section 303 of BNS covers theft provisions.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 1),
         ]
         sparse_results = [
-            ({"text": "Section 303 of BNS covers theft provisions.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "geography_iso": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 0),
-            ({"text": "Section 103 of BNS defines punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "geography_iso": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 1),
+            ({"text": "Section 303 of BNS covers theft provisions.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 0),
+            ({"text": "Section 103 of BNS defines punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 1),
         ]
         
         # Merge with 0 temporal boost to isolate RRF
@@ -33,8 +33,8 @@ class TestRetrievalPipeline(unittest.TestCase):
         # Doc A is 2023 (newer)
         # Doc B is 2015 (older)
         # Both are ranked at the same position in dense and sparse lists
-        dense_results_a = [({"text": "BNS Section 103 content", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "geography_iso": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 0)]
-        dense_results_b = [({"text": "IT Act Section 66 content", "metadata": {"document_name": "Information Technology Act 2000", "geography_iso": "cyber", "pub_year": 2000, "namespace": "cyber"}}, 0)]
+        dense_results_a = [({"text": "BNS Section 103 content", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}, 0)]
+        dense_results_b = [({"text": "IT Act Section 66 content", "metadata": {"document_name": "Information Technology Act 2000", "legal_domain": "cyber", "pub_year": 2000, "namespace": "cyber"}}, 0)]
         
         merged_a = self.pipeline.rrf_merge(dense_results_a, [], k=60, temporal_boost=0.1)
         merged_b = self.pipeline.rrf_merge(dense_results_b, [], k=60, temporal_boost=0.1)
@@ -50,7 +50,7 @@ class TestRetrievalPipeline(unittest.TestCase):
         
         # Mock search retrieval to return a candidate chunk
         self.pipeline.retrieve = MagicMock(return_value=[
-            {"text": "Section 103 of BNS prescribes punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "geography_iso": "criminal", "pub_year": 2023, "namespace": "criminal"}}
+            {"text": "Section 103 of BNS prescribes punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}
         ])
         
         # 1. Test query passes confidence gate (high rerank score)

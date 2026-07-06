@@ -34,7 +34,7 @@ class TestIntegrationEndpoints(unittest.TestCase):
                     "relevance_score": 0.85,
                     "metadata": {
                         "document_name": "Bharatiya Nyaya Sanhita 2023",
-                        "geography_iso": "criminal",
+                        "legal_domain": "criminal",
                         "pub_year": 2023,
                         "namespace": "criminal",
                         "source_url": "https://indiacode.nic.in"
@@ -63,7 +63,7 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertEqual(data["confidence_score"], 0.85)
         self.assertIn("BNS", data["answer"])
         self.assertEqual(len(data["sources"]), 1)
-        self.assertEqual(data["sources"][0]["geography_iso"], "criminal")
+        self.assertEqual(data["sources"][0]["legal_domain"], "criminal")
 
     @patch("src.backend.main.rag_pipeline")
     def test_query_endpoint_refusal(self, mock_pipeline):

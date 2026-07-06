@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import './App.css';
 
-const API_BASE_URL = 'http://localhost:8001';
+// Backend URL: set VITE_API_BASE_URL in .env (local) or Vercel dashboard (prod).
+// Falls back to localhost:8001 so local dev works without any extra config.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
 
 const NS_LABELS = {
   criminal: 'Criminal Law',
@@ -185,7 +187,7 @@ function App() {
         role: 'assistant',
         content: isTimeout
           ? 'Request timed out. The first query loads the AI model (~1-2 minutes). Please try again — it will be faster now.'
-          : 'Network error — make sure the FastAPI server is running on port 8000.',
+          : 'Network error — make sure the FastAPI server is running on port 8001.',
         refused: true,
         confidenceScore: 0,
       }]);

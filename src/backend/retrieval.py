@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import List, Dict, Any, Tuple, Union
-from src.backend.indexing import MedicalIndexManager, tokenize_for_bm25
+from src.backend.indexing import LegalIndexManager, tokenize_for_bm25
 
 import re
 
@@ -95,8 +95,8 @@ def route_query(query: str) -> str:
 
     return tied[0]
 
-class MedicalRAGPipeline:
-    def __init__(self, index_manager: MedicalIndexManager, reranker_name: str = "BAAI/bge-reranker-v2-m3", confidence_threshold: float = 0.65):
+class LegalRAGPipeline:
+    def __init__(self, index_manager: LegalIndexManager, reranker_name: str = "BAAI/bge-reranker-v2-m3", confidence_threshold: float = 0.65):
         self.index_manager = index_manager
         self.reranker_name = reranker_name
         self.confidence_threshold = confidence_threshold
@@ -107,8 +107,10 @@ class MedicalRAGPipeline:
         if self.reranker is None:
             print(f"Loading reranker model {self.reranker_name}...")
             from sentence_transformers import CrossEncoder
-            self.reranker = CrossEncoder(self.reranker_name)
-            print("Reranker loaded successfully.")
+            import torch
+            device = os.environ.get("RERANKER_DEVICE", "cpu")
+            self.reranker = CrossEncoder(self.reranker_name, device=device)
+            print(f"Reranker loaded successfully on device={device}.")
         return self.reranker
 
     def rrf_merge(self, dense_results: List[Tuple[Dict[str, Any], int]], sparse_results: List[Tuple[Dict[str, Any], int]], k: int = 60, temporal_boost: float = 0.1) -> List[Dict[str, Any]]:
@@ -123,7 +125,7 @@ class MedicalRAGPipeline:
         def get_chunk_key(chunk: Dict[str, Any]) -> str:
             # Create a unique key for the chunk based on text hash or document name + text subset
             meta = chunk["metadata"]
-            return f"{meta['document_name']}_{meta['geography_iso']}_{hash(chunk['text'])}"
+            return f"{meta['document_name']}_{meta['legal_domain']}_{hash(chunk['text'])}"
 
         # Process dense results
         for rank, (chunk, _) in enumerate(dense_results):

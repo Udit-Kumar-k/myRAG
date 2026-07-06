@@ -12,7 +12,7 @@ def tokenize_for_bm25(text: str) -> List[str]:
     """Tokenizes text into lowercase words for BM25 keyword matching."""
     return re.findall(r"\b\w{2,}\b", text.lower())
 
-class MedicalIndexManager:
+class LegalIndexManager:
     def __init__(self, index_dir: str = "data/indexes", model_name: str = "BAAI/bge-m3"):
         self.index_dir = index_dir
         self.model_name = model_name
@@ -182,7 +182,7 @@ if __name__ == "__main__":
         else:
             print(f"Generated {len(chunks)} chunks. Building indexes...")
             # Drop batch_size to 16 for RTX 2050 (4 GB VRAM) to prevent CUDA OOM
-            manager = MedicalIndexManager()
+            manager = LegalIndexManager()
             manager.build_indexes(chunks, batch_size=16)
             print("=== Index Generation Complete ===")
     except Exception as e:
