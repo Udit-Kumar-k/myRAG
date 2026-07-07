@@ -1,4 +1,5 @@
 import os
+import traceback
 import json
 import time
 import uuid
@@ -252,6 +253,16 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
     if not rag_pipeline:
         raise HTTPException(status_code=503, detail="Pipeline not initialized. Check logs.")
 
+    try:
+        return _run_query_inner(req, uid)
+    except HTTPException:
+        raise  # re-raise FastAPI HTTP exceptions as-is
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"UNHANDLED QUERY ERROR:\n{tb}")
+        raise HTTPException(status_code=500, detail="Internal server error. Check backend logs.")
+
+def _run_query_inner(req: QueryRequest, uid: str):
     # 1. Run Retrieval Pipeline
     pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
     
@@ -265,7 +276,7 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         meta = chunk["metadata"]
         sources.append({
             "document_name": meta["document_name"],
-            "legal_domain":  meta["legal_domain"],
+            "legal_domain":  meta.get("legal_domain", meta.get("geography_iso", "general")),
             "pub_year":      meta["pub_year"],
             "namespace":     meta["namespace"],
             "source_url":    meta["source_url"],

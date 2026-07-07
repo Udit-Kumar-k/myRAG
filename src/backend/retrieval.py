@@ -125,7 +125,7 @@ class LegalRAGPipeline:
         def get_chunk_key(chunk: Dict[str, Any]) -> str:
             # Create a unique key for the chunk based on text hash or document name + text subset
             meta = chunk["metadata"]
-            return f"{meta['document_name']}_{meta['legal_domain']}_{hash(chunk['text'])}"
+            return f"{meta['document_name']}_{meta.get('legal_domain', meta.get('geography_iso', 'unknown'))}_{hash(chunk['text'])}"
 
         # Process dense results
         for rank, (chunk, _) in enumerate(dense_results):
@@ -247,11 +247,16 @@ class LegalRAGPipeline:
             }
 
         # Step 4: Cross-Encoder Reranking
+        # Truncate text to 512 chars for reranking — the reranker only needs
+        # enough context to judge relevance, not full 16k-char statute sections.
+        # Without truncation, the attention mask (~batch × seq² floats) exceeds
+        # available RAM on CPU and crashes with DefaultCPUAllocator OOM.
+        MAX_RERANK_CHARS = 512
         reranker = self.load_reranker()
-        pairs = [[query_text, cand["text"]] for cand in candidates]
+        pairs = [[query_text, cand["text"][:MAX_RERANK_CHARS]] for cand in candidates]
         
         # Run cross-encoder scoring
-        rerank_scores = reranker.predict(pairs)
+        rerank_scores = reranker.predict(pairs, batch_size=4)
         
         # Add reranker scores and sort
         for cand, score in zip(candidates, rerank_scores):
