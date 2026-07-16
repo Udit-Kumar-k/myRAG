@@ -101,7 +101,7 @@ class LegalRAGChain:
                 self.model_name = env_model
             else:
                 self.model_name = (
-                    "llama-3.3-70b-versatile" if self.provider == "groq" else "gemma-4-31b-it"
+                    "llama-3.3-70b-versatile" if self.provider == "groq" else "gemini-2.5-flash"
                 )
         self._llm = None
         self._chain = None

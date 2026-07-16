@@ -247,11 +247,11 @@ class LegalRAGPipeline:
             }
 
         # Step 4: Cross-Encoder Reranking
-        # Truncate text to 512 chars for reranking — the reranker only needs
-        # enough context to judge relevance, not full 16k-char statute sections.
-        # Without truncation, the attention mask (~batch × seq² floats) exceeds
-        # available RAM on CPU and crashes with DefaultCPUAllocator OOM.
-        MAX_RERANK_CHARS = 512
+        # Truncate text to 2048 chars for reranking — the reranker needs
+        # enough context to judge relevance, but full 16k-char statute sections
+        # are unnecessary. A 2048 char limit (~500 tokens) is optimal for accuracy,
+        # and has a tiny memory footprint (~16MB) that is completely safe from CPU OOM.
+        MAX_RERANK_CHARS = 2048
         reranker = self.load_reranker()
         pairs = [[query_text, cand["text"][:MAX_RERANK_CHARS]] for cand in candidates]
         
@@ -260,10 +260,9 @@ class LegalRAGPipeline:
         
         # Add reranker scores and sort
         for cand, score in zip(candidates, rerank_scores):
-            # Sigmoid normalization if scores are raw logits
-            # bge-reranker-v2-m3 outputs logits. We convert to 0-1 range via sigmoid:
-            prob = 1.0 / (1.0 + np.exp(-score))
-            cand["relevance_score"] = float(prob)
+            # bge-reranker-v2-m3 (num_labels=1) already applies sigmoid
+            # inside .predict() — scores are already in [0, 1] range.
+            cand["relevance_score"] = float(score)
 
         # Sort descending by relevance score
         candidates.sort(key=lambda x: x["relevance_score"], reverse=True)

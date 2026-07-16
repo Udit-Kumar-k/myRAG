@@ -1,9 +1,14 @@
 """Full pipeline diagnostic — runs each step of the query path in isolation to find the exact failure."""
 import os, sys, traceback
 
+sys.path.insert(0, os.path.abspath("."))
+
 os.environ["EMBEDDING_DEVICE"] = "cpu"
 os.environ["RERANKER_DEVICE"] = "cpu"
 os.environ["MOCK_AUTH"] = "true"
+
+from dotenv import load_dotenv
+load_dotenv()
 
 print("=== STEP 1: Load indexes ===")
 from src.backend.indexing import LegalIndexManager
@@ -16,8 +21,9 @@ if not ok:
 
 print("\n=== STEP 2: Create pipeline ===")
 from src.backend.retrieval import LegalRAGPipeline
-pipeline = LegalRAGPipeline(im, confidence_threshold=0.65)
-print("Pipeline created OK")
+threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.02))
+pipeline = LegalRAGPipeline(im, confidence_threshold=threshold)
+print(f"Pipeline created OK with confidence_threshold={threshold}")
 
 print("\n=== STEP 3: Run retrieval query ===")
 try:

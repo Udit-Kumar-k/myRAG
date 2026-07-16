@@ -2,6 +2,9 @@ import os
 import json
 import time
 from typing import List, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # 20-question hardcoded eval set — representative Indian legal queries.
@@ -272,3 +275,23 @@ if __name__ == "__main__":
     with open("data/eval_set.json", "w") as f:
         json.dump(EVAL_QUERIES, f, indent=2)
     print(f"Saved {len(EVAL_QUERIES)} eval queries to data/eval_set.json")
+
+    import sys
+    from src.backend.indexing import LegalIndexManager
+    from src.backend.retrieval import LegalRAGPipeline
+    from src.backend.chain import LegalRAGChain
+
+    print("Loading indexes for evaluation...")
+    index_manager = LegalIndexManager()
+    if not index_manager.load_indexes():
+        print("Error: Could not load indexes. Make sure to build them first.")
+        sys.exit(1)
+
+    threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
+    print(f"Initializing pipeline with CONFIDENCE_THRESHOLD={threshold}...")
+    pipeline = LegalRAGPipeline(index_manager, confidence_threshold=threshold)
+    chain = LegalRAGChain()
+
+    print("Running local evaluation...")
+    run_local_evaluation(pipeline, chain)
+    print("Evaluation complete. Results saved to data/eval_results.json")
