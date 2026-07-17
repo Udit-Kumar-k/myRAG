@@ -19,7 +19,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_01",
         "category": "criminal",
         "question": "What is the punishment for murder under Bharatiya Nyaya Sanhita?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["section 103", "death", "imprisonment for life", "murder", "BNS"]
     },
@@ -27,7 +26,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_02",
         "category": "criminal",
         "question": "What are the provisions for anticipatory bail under BNSS?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["anticipatory bail", "BNSS", "section 482", "arrest", "apprehension"]
     },
@@ -35,7 +33,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_03",
         "category": "criminal",
         "question": "What does BNS say about the offence of kidnapping?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["kidnapping", "abduction", "minor", "lawful guardian", "section"]
     },
@@ -43,7 +40,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_04",
         "category": "criminal",
         "question": "What is the procedure for filing an FIR under BNSS?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["FIR", "first information report", "cognizable", "police", "section"]
     },
@@ -51,7 +47,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_05",
         "category": "criminal",
         "question": "What constitutes criminal conspiracy under BNS?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["conspiracy", "agreement", "illegal act", "two or more", "section"]
     },
@@ -59,7 +54,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_06",
         "category": "criminal",
         "question": "What are the rules regarding admissibility of electronic evidence under BSA?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["electronic", "evidence", "admissibility", "BSA", "certificate", "section"]
     },
@@ -67,7 +61,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "criminal_07",
         "category": "criminal",
         "question": "What is the punishment for dowry-related offences under BNS?",
-        "geography_iso": "criminal",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["dowry", "cruelty", "husband", "relatives", "imprisonment", "section"]
     },
@@ -77,7 +70,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "cyber_01",
         "category": "cyber",
         "question": "What are the penalties for hacking under the Information Technology Act?",
-        "geography_iso": "cyber",
         "expected_namespace": "cyber",
         "ground_truth_keywords": ["hacking", "unauthorized access", "computer", "section 66", "IT Act"]
     },
@@ -85,7 +77,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "cyber_02",
         "category": "cyber",
         "question": "What does the IT Act say about publishing obscene content online?",
-        "geography_iso": "cyber",
         "expected_namespace": "cyber",
         "ground_truth_keywords": ["obscene", "electronic", "publish", "section 67", "IT Act"]
     },
@@ -93,7 +84,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "cyber_03",
         "category": "cyber",
         "question": "What is the liability of intermediaries under the IT Act?",
-        "geography_iso": "cyber",
         "expected_namespace": "cyber",
         "ground_truth_keywords": ["intermediary", "liability", "section 79", "due diligence", "IT Act"]
     },
@@ -101,7 +91,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "cyber_04",
         "category": "cyber",
         "question": "What constitutes cyber terrorism under Indian law?",
-        "geography_iso": "cyber",
         "expected_namespace": "cyber",
         "ground_truth_keywords": ["cyber terrorism", "section 66F", "critical information", "IT Act"]
     },
@@ -111,7 +100,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "consumer_01",
         "category": "consumer",
         "question": "How do I file a complaint in a consumer forum for a defective product?",
-        "geography_iso": "consumer",
         "expected_namespace": "consumer",
         "ground_truth_keywords": ["consumer complaint", "defective", "product", "district commission", "consumer protection"]
     },
@@ -119,7 +107,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "consumer_02",
         "category": "consumer",
         "question": "What is the liability of a product manufacturer under the Consumer Protection Act?",
-        "geography_iso": "consumer",
         "expected_namespace": "consumer",
         "ground_truth_keywords": ["product liability", "manufacturer", "defect", "consumer protection", "compensation"]
     },
@@ -127,7 +114,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "consumer_03",
         "category": "consumer",
         "question": "Can a landlord refuse to return a tenant's security deposit?",
-        "geography_iso": "consumer",
         "expected_namespace": "consumer",
         "ground_truth_keywords": ["landlord", "tenant", "deposit", "refund", "rent"]
     },
@@ -135,17 +121,15 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "consumer_04",
         "category": "consumer",
         "question": "What are the penalties for misleading advertisements under consumer protection law?",
-        "geography_iso": "consumer",
         "expected_namespace": "consumer",
         "ground_truth_keywords": ["misleading", "advertisement", "unfair trade", "penalty", "consumer"]
     },
 
-    # ── Banking Law (3) ─────────────────────────────────────────────────────
+    # ── Banking Law (2) ─────────────────────────────────────────────────────
     {
         "id": "banking_01",
         "category": "banking",
         "question": "What are the consequences of a cheque bounce under the Negotiable Instruments Act?",
-        "geography_iso": "banking",
         "expected_namespace": "banking",
         "ground_truth_keywords": ["cheque", "dishonour", "section 138", "negotiable instrument", "imprisonment"]
     },
@@ -153,7 +137,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "banking_02",
         "category": "banking",
         "question": "What are the RBI guidelines on digital payment fraud?",
-        "geography_iso": "banking",
         "expected_namespace": "banking",
         "ground_truth_keywords": ["RBI", "digital payment", "fraud", "liability", "unauthorized"]
     },
@@ -163,7 +146,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "general_01",
         "category": "general",
         "question": "Someone stole my identity online and took a loan in my name. What laws apply?",
-        "geography_iso": "general",
         "expected_namespace": "all",
         "ground_truth_keywords": ["identity theft", "fraud", "IT Act", "BNS", "cheating"]
     },
@@ -171,7 +153,6 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "id": "general_02",
         "category": "general",
         "question": "Someone sent me a fake UPI payment screenshot to scam me. What legal action can I take?",
-        "geography_iso": "general",
         "expected_namespace": "all",
         "ground_truth_keywords": ["UPI", "fraud", "cheating", "FIR", "IT Act"]
     },

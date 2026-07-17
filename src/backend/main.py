@@ -101,7 +101,7 @@ class DatabaseManager:
     def save_message(self, uid: str, conv_id: str, message: Dict[str, Any]):
         """Saves a message to Supabase PostgreSQL or local DB."""
         # 1. Try Supabase write
-        if supabase and os.environ.get("MOCK_AUTH", "true").lower() != "true":
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
             try:
                 # First ensure conversation exists (upsert)
                 supabase.table("conversations").upsert({
@@ -150,7 +150,7 @@ class DatabaseManager:
     def get_history(self, uid: str, conv_id: str) -> List[Dict[str, Any]]:
         """Retrieves conversation history, sorted by created_at/timestamp."""
         # 1. Try Supabase read
-        if supabase and os.environ.get("MOCK_AUTH", "true").lower() != "true":
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
             try:
                 res = supabase.table("messages")\
                               .select("*")\
@@ -195,18 +195,22 @@ db_manager = DatabaseManager()
 def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
     """
     Validates token against Supabase Auth.
-    If Supabase is offline or MOCK_AUTH=true, returns a standard mock UUID string.
+    If Supabase is offline or MOCK_AUTH=true (opt-in), returns a standard mock UUID string.
+    Defaults to real auth — set MOCK_AUTH=true explicitly in .env for local dev.
     """
     mock_uuid = "00000000-0000-0000-0000-000000000000"
     
     if not authorization or not authorization.startswith("Bearer "):
-        if os.environ.get("MOCK_AUTH", "true").lower() == "true":
+        # MOCK_AUTH defaults to "false" — opt-in to mock mode, not opt-out.
+        # Without this, deploying without setting MOCK_AUTH=false would cause
+        # all requests to share a single hardcoded UUID with no real auth check.
+        if os.environ.get("MOCK_AUTH", "false").lower() == "true":
             return mock_uuid
         raise HTTPException(status_code=401, detail="Invalid Authorization header format. Must be 'Bearer <token>'.")
         
     token = authorization.split("Bearer ")[1]
     
-    if token == "mock-token" or os.environ.get("MOCK_AUTH", "true").lower() == "true":
+    if token == "mock-token" or os.environ.get("MOCK_AUTH", "false").lower() == "true":
         return mock_uuid
         
     if not supabase:
@@ -276,7 +280,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
         meta = chunk["metadata"]
         sources.append({
             "document_name": meta["document_name"],
-            "legal_domain":  meta.get("legal_domain", meta.get("geography_iso", "general")),
+            "legal_domain":  meta.get("legal_domain", "general"),
             "pub_year":      meta["pub_year"],
             "namespace":     meta["namespace"],
             "source_url":    meta["source_url"],
@@ -292,7 +296,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
         history_msgs = []
         
         # If DATABASE_URL is active and not mock, load from SQLChatMessageHistory exclusively
-        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "true").lower() != "true":
+        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "false").lower() != "true":
             try:
                 from langchain_community.chat_message_histories import SQLChatMessageHistory
                 chat_history = SQLChatMessageHistory(
@@ -319,7 +323,8 @@ def _run_query_inner(req: QueryRequest, uid: str):
             except Exception as e:
                 print(f"Error parsing local history messages: {e}")
 
-        # 3. Generate Answer using LangChain Gemma 4
+        # 3. Generate Answer using LangChain
+        # Provider is selected by LLM_PROVIDER env var (e.g. Gemini or Groq/Llama).
         try:
             answer = rag_chain.run(req.question, retrieved_chunks, history_msgs)
         except Exception as e:
@@ -327,7 +332,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
             raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
 
         # 4. Save exchange to context history store
-        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "true").lower() != "true":
+        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "false").lower() != "true":
             try:
                 from langchain_community.chat_message_histories import SQLChatMessageHistory
                 chat_history = SQLChatMessageHistory(

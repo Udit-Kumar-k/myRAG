@@ -7,8 +7,8 @@ from torch.utils.data import DataLoader
 def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[InputExample]:
     """
     Mines contrastive triplets (query, positive, hard_negative) from evaluation set.
-    For each country, a positive is the correct target chunk, and a hard negative
-    is another document (or different year) from the same country.
+    For each expected namespace, a positive is the correct target chunk, and a hard
+    negative is another chunk from the same namespace (or a closely related one).
     """
     import pickle
     import glob
@@ -46,25 +46,28 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
     examples = []
     for item in queries:
         q = item["question"]
-        target_iso = item.get("geography_iso")
         expected_ns = item.get("expected_namespace")
         keywords = item.get("ground_truth_keywords", [])
         
-        # Filter chunks for this country
-        country_chunks = [
+        # Filter chunks by namespace.
+        # NOTE: previous code filtered on metadata.geography_iso which does not
+        # exist in the current chunk schema (ingestion uses namespace/legal_domain).
+        # That caused country_chunks to always be empty and 100% of training
+        # examples to silently use the synthetic filler fallback.
+        ns_chunks = [
             c for c in all_chunks 
-            if c.get("metadata", {}).get("geography_iso") == target_iso
+            if c.get("metadata", {}).get("namespace") == expected_ns
         ]
         
         pos_text = None
         neg_text = None
         
-        if country_chunks:
+        if ns_chunks:
             # Find positive chunk: highest keyword overlap
             best_pos_score = -1
             best_pos_chunk = None
             
-            for chunk in country_chunks:
+            for chunk in ns_chunks:
                 text_lower = chunk["text"].lower()
                 score = sum(1 for kw in keywords if kw.lower() in text_lower)
                 
@@ -84,11 +87,11 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
                 pos_text = best_pos_chunk["text"]
                 pos_year = best_pos_chunk.get("metadata", {}).get("pub_year", 2000)
                 
-                # Find hard negative chunk: same country, but different (ideally older) year or different namespace
+                # Find hard negative chunk: same namespace, but different (ideally older) year or different sub-namespace
                 best_neg_score = -1
                 best_neg_chunk = None
                 
-                for chunk in country_chunks:
+                for chunk in ns_chunks:
                     if chunk == best_pos_chunk or chunk["text"] == pos_text:
                         continue
                         
@@ -117,6 +120,9 @@ def mine_hard_negatives(eval_set_path: str = "data/eval_set.json") -> List[Input
                     
         # 3. Fallback to synthetic but realistic legal chunks if index is empty/insufficient
         if not pos_text or not neg_text:
+            print(f"  WARNING: No real corpus chunks found for query {item.get('id')!r} "
+                  f"(namespace={expected_ns!r}, {len(ns_chunks)} ns_chunks loaded) — "
+                  f"using synthetic filler fallback.  Run indexing first to fix this.")
             pos_text = f"Indian statutory law excerpt: " + ", ".join(keywords) + " — relevant to " + (expected_ns or "general") + "."
             neg_text = f"General legal overview: A historical summary discussing broad legal concepts without specific " + ", ".join(keywords[:2] if keywords else ["details"]) + " information."
             

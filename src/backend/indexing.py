@@ -38,9 +38,16 @@ class LegalIndexManager:
             print("Model loaded successfully.")
         return self.model
 
-    def build_indexes(self, all_chunks: List[Dict[str, Any]], batch_size: int = 256):
+    def build_indexes(self, all_chunks: List[Dict[str, Any]], batch_size: int = 256, force_rebuild: bool = False):
         """
         Builds FAISS and BM25 indexes for all namespaces from the list of chunks.
+
+        Args:
+            all_chunks: Flat list of chunk dicts produced by ingestion.
+            batch_size: Embedding batch size (reduce for low-VRAM GPUs).
+            force_rebuild: When True, existing index files on disk are
+                overwritten instead of being skipped.  Use this after any
+                ingestion or chunking change to ensure fresh indexes.
         """
         # Separate chunks by namespace
         ns_chunks: Dict[str, List[Dict[str, Any]]] = {ns: [] for ns in self.namespaces}
@@ -56,12 +63,14 @@ class LegalIndexManager:
         import faiss
 
         for ns in self.namespaces:
-            # Check if index files already exist to support resuming
+            # Check if index files already exist to support resuming.
+            # Skip only when force_rebuild is False — after any ingestion or
+            # chunking fix, pass force_rebuild=True to avoid serving stale data.
             chunks_path = os.path.join(self.index_dir, f"{ns}_chunks.pkl")
             faiss_path = os.path.join(self.index_dir, f"{ns}_faiss.index")
             bm25_path = os.path.join(self.index_dir, f"{ns}_bm25.pkl")
-            if os.path.exists(chunks_path) and os.path.exists(faiss_path) and os.path.exists(bm25_path):
-                print(f"\n--- Namespace: {ns} already indexed. Skipping. ---")
+            if not force_rebuild and os.path.exists(chunks_path) and os.path.exists(faiss_path) and os.path.exists(bm25_path):
+                print(f"\n--- Namespace: {ns} already indexed. Skipping (pass force_rebuild=True to override). ---")
                 continue
 
             chunks = ns_chunks[ns]
@@ -175,6 +184,12 @@ if __name__ == "__main__":
     if hf_token == "your_huggingface_token_here" or not hf_token:
         hf_token = None
 
+    # Set FORCE_REBUILD=1 in env to rebuild indexes even if files already exist.
+    # Always set this after any chunking or ingestion change.
+    force_rebuild = os.environ.get("FORCE_REBUILD", "0").strip() in ("1", "true", "yes")
+    if force_rebuild:
+        print("FORCE_REBUILD=1 detected — existing index files will be overwritten.")
+
     try:
         chunks = process_corpus(hf_token=hf_token)
         if not chunks:
@@ -183,7 +198,7 @@ if __name__ == "__main__":
             print(f"Generated {len(chunks)} chunks. Building indexes...")
             # Drop batch_size to 16 for RTX 2050 (4 GB VRAM) to prevent CUDA OOM
             manager = LegalIndexManager()
-            manager.build_indexes(chunks, batch_size=16)
+            manager.build_indexes(chunks, batch_size=16, force_rebuild=force_rebuild)
             print("=== Index Generation Complete ===")
     except Exception as e:
         print(f"Error: {e}")

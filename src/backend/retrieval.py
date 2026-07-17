@@ -42,7 +42,10 @@ CONSUMER_KEYWORDS = [
 BANKING_KEYWORDS = [
     "rbi", "reserve bank", "banking", "bank", "loan", "interest rate",
     "npa", "non-performing asset", "upi", "neft", "rtgs", "imps",
-    "payment", "cheque bounce", "negotiable instrument",
+    # NOTE: bare "payment" removed — it matches "Payment of Wages Act",
+    # "Payment of Bonus Act", etc. and misfiled them into banking namespace.
+    # "digital payment" (below) is specific enough.
+    "cheque bounce", "negotiable instrument",
     "financial fraud", "credit", "debit", "mortgage", "insurance",
     "nbfc", "microfinance", "digital payment",
 ]
@@ -125,20 +128,26 @@ class LegalRAGPipeline:
         def get_chunk_key(chunk: Dict[str, Any]) -> str:
             # Create a unique key for the chunk based on text hash or document name + text subset
             meta = chunk["metadata"]
-            return f"{meta['document_name']}_{meta.get('legal_domain', meta.get('geography_iso', 'unknown'))}_{hash(chunk['text'])}"
+            return f"{meta['document_name']}_{meta.get('legal_domain', 'unknown')}_{hash(chunk['text'])}"
 
-        # Process dense results
-        for rank, (chunk, _) in enumerate(dense_results):
+        # Process dense results.
+        # Use the rank *r* stored in the tuple by retrieve() — this is the
+        # per-namespace rank assigned during FAISS/BM25 search and carries
+        # the correct ordering within each namespace.  Do NOT re-derive rank
+        # from enumerate() over the flat concatenated list: that would give
+        # correct ranks only to the first namespace's results and push every
+        # subsequent namespace's top hits to artificially bad positions.
+        for _, (chunk, r) in enumerate(dense_results):
             key = get_chunk_key(chunk)
             chunk_map[key] = chunk
             # RRF Score formula: 1 / (k + rank)
-            rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (k + rank + 1)
+            rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (k + r + 1)
 
-        # Process sparse results
-        for rank, (chunk, _) in enumerate(sparse_results):
+        # Process sparse results (same rank-preservation rationale as above).
+        for _, (chunk, r) in enumerate(sparse_results):
             key = get_chunk_key(chunk)
             chunk_map[key] = chunk
-            rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (k + rank + 1)
+            rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (k + r + 1)
 
         # Apply temporal boost
         # Normalize pub_year in range [1990, 2026]
