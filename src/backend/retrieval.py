@@ -157,14 +157,14 @@ class LegalRAGPipeline:
         for key, rrf_score in rrf_scores.items():
             chunk = chunk_map[key]
             pub_year = chunk["metadata"].get("pub_year", 2000)
-            
+
             # Normalize year to [0, 1] range, clipping if outside
             normalized_year = (pub_year - min_year) / (max_year - min_year)
             normalized_year = max(0.0, min(1.0, normalized_year))
-            
+
             # Combine RRF score with temporal weight
             final_score = rrf_score + (temporal_boost * normalized_year)
-            
+
             # Add final score to metadata for transparency/debugging
             chunk_copy = dict(chunk)
             chunk_copy["rrf_score"] = final_score

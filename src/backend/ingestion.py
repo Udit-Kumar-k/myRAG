@@ -104,9 +104,81 @@ def _extract_zone3(full_text: str, act_name: str) -> str:
     return full_text[start:end]
 
 
-# Maximum chunk size before flagging as oversized (table extraction produces
-# multi-thousand-character fragments of disconnected word/cell-per-line text).
+# Maximum chunk size before sub-chunking.  Chunks larger than this are split
+# further by _sub_chunk() rather than indexed as-is.  Table extraction via
+# page.get_text() and long definition sections (e.g. §2 BNS Definitions) both
+# produce oversized text — sub-chunking recovers the real legal content from
+# them instead of discarding it.
 _MAX_CHUNK_CHARS = 4000
+# Sliding-window parameters used by _sub_chunk's fallback pass.
+_SUB_CHUNK_SIZE    = 800   # target size for each window sub-chunk (chars)
+_SUB_CHUNK_OVERLAP = 150   # overlap between consecutive windows (chars)
+
+
+def _sub_chunk(text: str) -> List[str]:
+    """
+    Splits a text block that is too large for a single embedding into
+    smaller sub-chunks that each fit within _MAX_CHUNK_CHARS.
+
+    Strategy (two passes):
+
+    Pass 1 — Paragraph split: split on double-newlines ("\\n\\n"), which
+    preserves the structure of numbered definitions, sub-clauses, and
+    explanatory paragraphs.  Groups consecutive paragraphs into a running
+    buffer; when adding the next paragraph would exceed _MAX_CHUNK_CHARS,
+    flush the buffer as a sub-chunk and start a new one.
+
+    Pass 2 — Sliding window: any paragraph that is *itself* longer than
+    _MAX_CHUNK_CHARS (e.g. a 2000-char run-on sentence) is split by a
+    sliding window of _SUB_CHUNK_SIZE with _SUB_CHUNK_OVERLAP chars of
+    overlap so no context is lost at boundaries.
+
+    Returns a list of non-empty strings, each <= _MAX_CHUNK_CHARS chars
+    (except in the degenerate case of a single token > _MAX_CHUNK_CHARS,
+    which is left as-is and will be caught by the is_oversized flag).
+    """
+    if len(text) <= _MAX_CHUNK_CHARS:
+        return [text]
+
+    # ── Pass 1: Paragraph-aware grouping ──────────────────────────────────
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if len(paragraphs) <= 1:
+        # No paragraph breaks — fall straight through to sliding window
+        paragraphs = [text]
+
+    sub_chunks: List[str] = []
+    buffer: List[str] = []
+    buffer_len = 0
+
+    for para in paragraphs:
+        if len(para) > _MAX_CHUNK_CHARS:
+            # This paragraph is itself oversized — flush buffer first, then
+            # apply sliding window to the paragraph.
+            if buffer:
+                sub_chunks.append("\n\n".join(buffer))
+                buffer, buffer_len = [], 0
+            # ── Pass 2: Sliding window on the overlong paragraph ──────────
+            start = 0
+            while start < len(para):
+                end = start + _SUB_CHUNK_SIZE
+                sub_chunks.append(para[start:end].strip())
+                if end >= len(para):
+                    break
+                start = end - _SUB_CHUNK_OVERLAP
+        else:
+            # Would adding this paragraph overflow the buffer?
+            joining_len = buffer_len + len(para) + (2 if buffer else 0)  # "\n\n" = 2
+            if buffer and joining_len > _MAX_CHUNK_CHARS:
+                sub_chunks.append("\n\n".join(buffer))
+                buffer, buffer_len = [para], len(para)
+            else:
+                buffer.append(para)
+                buffer_len += len(para) + (2 if len(buffer) > 1 else 0)
+
+    if buffer:
+        sub_chunks.append("\n\n".join(buffer))
+
+    return [s for s in sub_chunks if s.strip()]
 
 
 def _caption_boundary(zone3_text: str, match_start: int) -> int:
@@ -239,18 +311,102 @@ def _split_sections(zone3_text: str) -> List[str]:
         if not chunk_text:
             continue
         if len(chunk_text) > _MAX_CHUNK_CHARS:
-            print(f"  [_split_sections] WARNING: oversized chunk ({len(chunk_text)} chars) "
-                  f"starting near offset {start} — likely a table or multi-section block. "
-                  f"Flagged with is_oversized=True for downstream filtering.")
-        chunks.append(chunk_text)
+            # Sub-chunk instead of discarding — real legal content (e.g. §2
+            # Definitions with 50+ entries) is recovered this way.
+            chunks.extend(_sub_chunk(chunk_text))
+        else:
+            chunks.append(chunk_text)
 
     return chunks
+
+
+def _extract_page_text_table_aware(page: Any) -> str:
+    """
+    Extracts text from a single PDF page while replacing raw table regions
+    with a clean structured representation.
+
+    Problem: page.get_text() turns table cells into one word/cell per line
+    (PDF reading-order stream), producing multi-thousand-char blobs of
+    disconnected tokens for sections like BNSS §359 schedule tables.
+
+    Fix: detect table regions with page.find_tables(), render each table as
+    compact 'col: val | col: val' rows, and suppress the raw table blocks
+    from the page's text output so they don't overlap.
+
+    Falls back to plain page.get_text() on any exception (e.g. older PyMuPDF
+    without find_tables support), so this is non-breaking.
+    """
+    try:
+        tables = page.find_tables()
+        table_bboxes = [t.bbox for t in tables]
+
+        if not table_bboxes:
+            return page.get_text()
+
+        # Format each detected table as compact rows keyed by y0 position
+        table_text_by_y0: Dict[float, str] = {}
+        for table in tables:
+            rows = table.extract()
+            if not rows:
+                continue
+            header = rows[0]
+            formatted_rows: List[str] = []
+            for row in rows[1:]:
+                cells = [
+                    f"{str(h).strip()}: {str(c).strip()}"
+                    for h, c in zip(header, row)
+                    if str(h).strip() or str(c).strip()
+                ]
+                if cells:
+                    formatted_rows.append(" | ".join(cells))
+            if formatted_rows:
+                table_text_by_y0[table.bbox[1]] = "\n".join(formatted_rows)
+
+        # Walk text blocks in reading order; skip blocks inside table bboxes,
+        # inserting the formatted table text in their place (once per table).
+        page_text_parts: List[str] = []
+        inserted_tables: set = set()
+        blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
+        for block in sorted(blocks, key=lambda b: b[1]):
+            bx0, by0, bx1, by1 = block[:4]
+            block_text = block[4].strip()
+            if not block_text:
+                continue
+            in_table = any(
+                bx0 >= tbx0 - 2 and by0 >= tby0 - 2 and bx1 <= tbx1 + 2 and by1 <= tby1 + 2
+                for (tbx0, tby0, tbx1, tby1) in table_bboxes
+            )
+            if in_table:
+                # Insert the formatted version of whichever table contains this block
+                for ty0, table_text in table_text_by_y0.items():
+                    if ty0 not in inserted_tables and abs(ty0 - by0) < 20:
+                        page_text_parts.append(table_text)
+                        inserted_tables.add(ty0)
+                        break
+            else:
+                page_text_parts.append(block_text)
+
+        # Any tables not yet inserted (no overlapping block found by position)
+        for ty0, table_text in table_text_by_y0.items():
+            if ty0 not in inserted_tables:
+                page_text_parts.append(table_text)
+
+        return "\n".join(page_text_parts)
+
+    except Exception:
+        # Fallback: plain text extraction (e.g. older PyMuPDF builds)
+        return page.get_text()
 
 
 def chunk_pdf(pdf_path: str, act_name: str) -> List[Dict[str, Any]]:
     """
     Extracts text from a PDF using pymupdf (fitz) and splits using
     zone-based extraction tuned for the Telangana Police PDF format.
+
+    Text extraction uses _extract_page_text_table_aware() so that table
+    regions (e.g. BNSS §359 schedule tables) are rendered as compact
+    structured rows instead of word-per-cell vertical dumps — fixing the
+    root cause of oversized chunks for table-heavy sections.
 
     Zone 3 (Chapters and Sections) is split by section-number boundaries.
     Zones 1 (Index), 2 (Corresponding Section Table), and 4 (Schedules)
@@ -261,7 +417,7 @@ def chunk_pdf(pdf_path: str, act_name: str) -> List[Dict[str, Any]]:
     doc = fitz.open(pdf_path)
     full_text = ""
     for page in doc:
-        full_text += page.get_text()
+        full_text += _extract_page_text_table_aware(page)
     doc.close()
 
     # Extract Zone 3 (the actual legal text)
@@ -278,20 +434,28 @@ def chunk_pdf(pdf_path: str, act_name: str) -> List[Dict[str, Any]]:
         if len(text) < 50:
             continue  # Skip noise/headers
 
-        is_oversized = len(text) > _MAX_CHUNK_CHARS
-        chunks.append({
-            "text": text,
-            "metadata": {
-                "document_name": act_name,
-                "act_name":      act_name,
-                "namespace":     namespace,
-                "source":        "pdf",
-                "pub_year":      2023,
-                "source_url":    "https://indiacode.nic.in",
-                "legal_domain":  namespace,
-                "is_oversized":  is_oversized,
-            }
-        })
+        # Sub-chunk any genuinely long section (e.g. §2 Definitions) so each
+        # sub-chunk fits within the embedding model's context window.
+        # is_oversized=True on sub-chunks that remain large is informational
+        # only — not used as a filter or retrieval penalty.
+        sub_texts = _sub_chunk(text)
+        for sub_text in sub_texts:
+            if len(sub_text) < 50:
+                continue
+            is_oversized = len(sub_text) > _MAX_CHUNK_CHARS
+            chunks.append({
+                "text": sub_text,
+                "metadata": {
+                    "document_name": act_name,
+                    "act_name":      act_name,
+                    "namespace":     namespace,
+                    "source":        "pdf",
+                    "pub_year":      2023,
+                    "source_url":    "https://indiacode.nic.in",
+                    "legal_domain":  namespace,
+                    "is_oversized":  is_oversized,
+                }
+            })
 
     print(f"  {act_name}: {len(chunks)} chunks from PDF")
     return chunks
@@ -306,7 +470,12 @@ def load_hf_legal_acts(
     """
     Loads the Indian legal acts dataset from HuggingFace.
     Filters out repealed acts (IPC, CrPC, Evidence Act).
-    Auto-detects whether rows need section-boundary chunking or are pre-chunked.
+    Auto-detects per-row whether rows need section-boundary chunking or are
+    pre-chunked (checked per-row so mixed datasets are handled correctly).
+
+    The optional HF_GENERAL_LIMIT env var caps general-namespace chunks when
+    set to a positive integer (useful for development/testing).  Defaults to 0
+    (unlimited) so no content is silently dropped in production.
     """
     from datasets import load_dataset
 
@@ -314,17 +483,17 @@ def load_hf_legal_acts(
     ds = load_dataset(dataset_name, split="central", token=hf_token)
     print(f"Loaded {len(ds)} rows from HuggingFace dataset.")
 
-    # Inspect row structure to decide chunking strategy
-    sample_text = (ds[0].get("Markdown") or ds[0].get("text") or "") if len(ds) > 0 else ""
-    needs_chunking = len(sample_text) > 5000
-    if needs_chunking:
-        print("  Rows are full acts (>5000 chars) — applying section-boundary chunking.")
-    else:
-        print("  Rows are pre-chunked sections (<= 5000 chars) — using directly.")
+    # Optional cap on the "general" namespace — 0 means unlimited.
+    # Set HF_GENERAL_LIMIT=1000 in .env for a quick dev/test run.
+    general_limit = int(os.environ.get("HF_GENERAL_LIMIT", "0"))
+    if general_limit > 0:
+        print(f"  HF_GENERAL_LIMIT={general_limit}: general-namespace chunks will be "
+              f"capped at {general_limit}. Set HF_GENERAL_LIMIT=0 (or unset) to index all.")
 
     chunks: List[Dict[str, Any]] = []
     namespace_counts: Dict[str, int] = {}
     filtered_count = 0
+    general_skipped = 0
 
     for row in ds:
         act_name = row.get("Short Title") or row.get("act_name") or row.get("title", "Unknown Act")
@@ -339,23 +508,29 @@ def load_hf_legal_acts(
             continue
 
         namespace = assign_namespace(act_name)
-        if namespace == "general" and namespace_counts.get("general", 0) >= 1000:
+
+        # Apply the optional general-namespace cap.
+        # When the limit is active and reached, count every skipped row so
+        # the summary line below can report the total — nothing is silently lost.
+        if general_limit > 0 and namespace == "general" and namespace_counts.get("general", 0) >= general_limit:
+            general_skipped += 1
             continue
 
+        # ── Per-row chunking strategy ────────────────────────────────────────
+        # Each row's own text length decides whether it goes through
+        # _split_sections() or is used as-is.  A single global flag computed
+        # from ds[0] would mis-handle rows that don't share ds[0]'s shape
+        # (e.g. a dataset mixing full-act rows with pre-chunked section rows).
+        needs_chunking = len(text) > 5000
+
         if needs_chunking:
-            # Large rows need section-boundary chunking.
-            # Use _split_sections (finditer + slicing) rather than
-            # SECTION_RE.split(text): re.split() with a capturing group
-            # returns each captured group (e.g. "34", "90") as its own
-            # fragment, separate from the body text it introduces.  These
-            # tiny fragments fall below the 50-char noise filter and are
-            # silently discarded, causing every HF chunk to lose its section
-            # number.  _split_sections reuses the already-correct PDF path.
-            raw_chunks = _split_sections(text)
+            raw_chunks = _split_sections(text)  # already sub-chunks oversized sections internally
             for raw in raw_chunks:
                 chunk_text = raw.strip()
                 if len(chunk_text) < 50:
                     continue
+                # _split_sections already called _sub_chunk, so additional
+                # sub-chunks are only needed for the direct HF path below.
                 is_oversized = len(chunk_text) > _MAX_CHUNK_CHARS
                 chunks.append({
                     "text": chunk_text,
@@ -372,26 +547,31 @@ def load_hf_legal_acts(
                 })
                 namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
         else:
-            # Pre-chunked rows can be used directly
-            if len(text.strip()) < 50:
-                continue
-            is_oversized = len(text.strip()) > _MAX_CHUNK_CHARS
-            chunks.append({
-                "text": text.strip(),
-                "metadata": {
-                    "document_name": act_name,
-                    "act_name":      act_name,
-                    "namespace":     namespace,
-                    "source":        "huggingface",
-                    "pub_year":      2020,
-                    "source_url":    "https://huggingface.co/datasets/geekyrakshit/indian-legal-acts",
-                    "legal_domain":  namespace,
-                    "is_oversized":  is_oversized,
-                }
-            })
-            namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
+            # Pre-chunked rows: sub-chunk any that are oversized before indexing.
+            sub_texts = _sub_chunk(text.strip())
+            for sub_text in sub_texts:
+                if len(sub_text) < 50:
+                    continue
+                is_oversized = len(sub_text) > _MAX_CHUNK_CHARS
+                chunks.append({
+                    "text": sub_text,
+                    "metadata": {
+                        "document_name": act_name,
+                        "act_name":      act_name,
+                        "namespace":     namespace,
+                        "source":        "huggingface",
+                        "pub_year":      2020,
+                        "source_url":    "https://huggingface.co/datasets/geekyrakshit/indian-legal-acts",
+                        "legal_domain":  namespace,
+                        "is_oversized":  is_oversized,
+                    }
+                })
+                namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
 
     print(f"  Filtered out {filtered_count} repealed act rows (IPC/CrPC/Evidence Act).")
+    if general_skipped > 0:
+        print(f"  Skipped {general_skipped} general-namespace rows due to HF_GENERAL_LIMIT={general_limit}. "
+              f"Set HF_GENERAL_LIMIT=0 to index all.")
     print(f"  HuggingFace namespace distribution:")
     for ns, count in sorted(namespace_counts.items()):
         print(f"    {ns}: {count} chunks")

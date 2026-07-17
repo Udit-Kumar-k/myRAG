@@ -79,6 +79,12 @@ class LegalIndexManager:
                 print(f"No chunks found for namespace {ns}. Skipping.")
                 continue
 
+            # Note: is_oversized=True chunks are included in the index.
+            # The flag is informational only (for dashboards/QA) — genuinely
+            # long statutory sections (e.g. BNS §2 Definitions) must remain
+            # retrievable. Table-extraction garbage is fixed at source in
+            # chunk_pdf() via page.find_tables(), not by filtering here.
+
             # 1. Build BM25 Index
             print(f"Building BM25 index for {ns}...")
             tokenized_corpus = [tokenize_for_bm25(chunk["text"]) for chunk in chunks]
