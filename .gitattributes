@@ -1,0 +1,19 @@
+# Git LFS tracking rules for NyayBot index artifacts
+#
+# These files are large binaries produced by indexing.py and committed to the
+# repo so HF Spaces can load them immediately at startup without a rebuild step.
+#
+# To initialise LFS in a fresh clone:
+#   git lfs install
+#   git lfs pull
+#
+# After running `python -m src.backend.indexing` locally, add and commit
+# the index files as you would any normal file — git will automatically
+# store them in LFS because of the rules below.
+
+# FAISS indexes
+data/indexes/*.faiss
+data/indexes/*.index filter=lfs diff=lfs merge=lfs -text
+
+# Chunk metadata and BM25 pickles
+data/indexes/*.pkl filter=lfs diff=lfs merge=lfs -text

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -31,10 +32,28 @@ async def lifespan(app: FastAPI):
     global rag_pipeline, rag_chain
     success = index_manager.load_indexes()
     if not success:
-        print("WARNING: NyayBot indexes could not be loaded on startup.")
+        # Indexes not on disk — attempt auto-build from corpus.
+        # In production (HF Spaces), indexes are baked into the image layer so
+        # this path should not be hit. It fires on first local run before
+        # `python -m src.backend.indexing` has been executed.
+        print("No indexes found on disk — attempting auto-build from corpus (this takes 15–60 min on CPU)...")
+        try:
+            from src.backend.ingestion import process_corpus
+            hf_token = os.environ.get("HF_TOKEN")
+            chunks = process_corpus(hf_token=hf_token if hf_token != "your_huggingface_token_here" else None)
+            if chunks:
+                print(f"Auto-build: {len(chunks)} chunks generated. Building indexes...")
+                index_manager.build_indexes(chunks, batch_size=16)
+                index_manager.load_indexes()
+                print("Auto-build complete.")
+            else:
+                print("WARNING: Auto-build produced no chunks. Check HF_TOKEN and corpus access.")
+        except Exception as e:
+            print(f"WARNING: Auto-build failed: {e}. Server will start without indexes.")
+
     threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
     rag_pipeline = LegalRAGPipeline(index_manager, confidence_threshold=threshold)
-    
+
     # Pre-load the embedding model on startup to prevent slow first-query timeouts.
     # NOTE: The reranker is NOT pre-loaded here — it loads lazily on first query.
     # Loading both BGE-M3 and BGE-Reranker simultaneously on CPU exceeds 8 GB RAM.
@@ -209,8 +228,13 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
         raise HTTPException(status_code=401, detail="Invalid Authorization header format. Must be 'Bearer <token>'.")
         
     token = authorization.split("Bearer ")[1]
-    
-    if token == "mock-token" or os.environ.get("MOCK_AUTH", "false").lower() == "true":
+
+    # SECURITY: Do NOT check `token == "mock-token"` here unconditionally.
+    # The frontend sends the literal string "mock-token" when no Supabase session
+    # exists. An unconditional string check would let any unauthenticated request
+    # — or any crafted `Authorization: Bearer mock-token` header — bypass auth in
+    # production regardless of MOCK_AUTH. Gate this exclusively behind MOCK_AUTH.
+    if os.environ.get("MOCK_AUTH", "false").lower() == "true":
         return mock_uuid
         
     if not supabase:
@@ -269,12 +293,12 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
 def _run_query_inner(req: QueryRequest, uid: str):
     # 1. Run Retrieval Pipeline
     pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
-    
+
     refused = pipeline_res["refused"]
     confidence = pipeline_res["confidence_score"]
     namespace_searched = pipeline_res["namespace_searched"]
     retrieved_chunks = pipeline_res["retrieved_chunks"]
-    
+
     sources = []
     for chunk in retrieved_chunks:
         meta = chunk["metadata"]
@@ -286,42 +310,39 @@ def _run_query_inner(req: QueryRequest, uid: str):
             "source_url":    meta["source_url"],
             "relevance_score": chunk["relevance_score"]
         })
-        
+
     if refused:
         answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
     else:
-        # 2. Fetch past conversation history for LangChain context window
-        database_url = os.environ.get("DATABASE_URL")
-        is_placeholder = not database_url or "[project-ref]" in database_url or "placeholder" in database_url
+        # 2. Fetch past conversation history for LangChain context window.
+        #
+        # Single persistence path: always source context from db_manager.get_history()
+        # (the `messages` table, or local JSON fallback). This is the same store
+        # the UI reads from via /history, so context and display are always in sync.
+        #
+        # Rationale for dropping SQLChatMessageHistory:
+        # - It auto-creates a separate LangChain-managed table with no RLS policy,
+        #   independent of the reviewed schema.sql tables.
+        # - If its read or write fails, it raises a 500 even after the LLM has
+        #   already generated a good answer, and neither table gets the exchange saved.
+        # - Two stores can drift: /history shows one thing, the LLM sees another.
         history_msgs = []
-        
-        # If DATABASE_URL is active and not mock, load from SQLChatMessageHistory exclusively
-        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "false").lower() != "true":
-            try:
-                from langchain_community.chat_message_histories import SQLChatMessageHistory
-                chat_history = SQLChatMessageHistory(
-                    session_id=f"{uid}:{req.conversation_id}",
-                    connection_string=database_url
-                )
-                # Keep last 10 messages to avoid token bloating
-                history_msgs = chat_history.messages[-10:]
-            except Exception as e:
-                print(f"SQLChatMessageHistory connection failed: {e}")
-                raise HTTPException(status_code=500, detail="Database history retrieval failed.")
-        else:
-            # Otherwise use local DB/JSON file exclusively
-            try:
-                from langchain_core.messages import HumanMessage, AIMessage
-                history_records = db_manager.get_history(uid, req.conversation_id)
-                for rec in history_records[-10:]:
-                    if rec.get("refused", False):
-                        continue
-                    if rec.get("role") == "user" or rec.get("question"):
-                        history_msgs.append(HumanMessage(content=rec.get("content") or rec.get("question")))
-                    elif rec.get("role") == "assistant" or rec.get("answer"):
-                        history_msgs.append(AIMessage(content=rec.get("content") or rec.get("answer")))
-            except Exception as e:
-                print(f"Error parsing local history messages: {e}")
+        try:
+            from langchain_core.messages import HumanMessage, AIMessage
+            history_records = db_manager.get_history(uid, req.conversation_id)
+            for rec in history_records[-10:]:
+                # Skip refused turns — they had no grounded answer, so they add
+                # no useful context for the LLM's next reply.
+                if rec.get("refused", False):
+                    continue
+                if rec.get("role") == "user" or rec.get("question"):
+                    history_msgs.append(HumanMessage(content=rec.get("content") or rec.get("question")))
+                elif rec.get("role") == "assistant" or rec.get("answer"):
+                    history_msgs.append(AIMessage(content=rec.get("content") or rec.get("answer")))
+        except Exception as e:
+            # Non-fatal: history context is best-effort. Log and proceed without it
+            # rather than 500-ing when the LLM could still answer correctly.
+            print(f"WARNING: Error loading conversation history for context: {e}")
 
         # 3. Generate Answer using LangChain
         # Provider is selected by LLM_PROVIDER env var (e.g. Gemini or Groq/Llama).
@@ -331,22 +352,9 @@ def _run_query_inner(req: QueryRequest, uid: str):
             print(f"LLM chain execution error: {e}")
             raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
 
-        # 4. Save exchange to context history store
-        if database_url and not is_placeholder and os.environ.get("MOCK_AUTH", "false").lower() != "true":
-            try:
-                from langchain_community.chat_message_histories import SQLChatMessageHistory
-                chat_history = SQLChatMessageHistory(
-                    session_id=f"{uid}:{req.conversation_id}",
-                    connection_string=database_url
-                )
-                chat_history.add_user_message(req.question)
-                chat_history.add_ai_message(answer)
-            except Exception as e:
-                print(f"Failed to append to SQLChatMessageHistory: {e}")
-                raise HTTPException(status_code=500, detail="Database history save failed.")
-
-    # 5. Save exchange to UI Database tables (messages & conversations)
-    # User message
+    # 4. Persist exchange to the single authoritative store (messages table / local JSON).
+    # Both the LLM context path (above) and the UI /history endpoint read from this
+    # same store — one system, no drift.
     user_record = {
         "role": "user",
         "content": req.question,
@@ -356,8 +364,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
         "namespace_searched": None
     }
     db_manager.save_message(uid, req.conversation_id, user_record)
-    
-    # Assistant response
+
     assistant_record = {
         "role": "assistant",
         "content": answer,
@@ -396,3 +403,13 @@ def health_check():
         "supabase_connected": supabase is not None,
         "timestamp": time.time()
     }
+
+# -------------------------------------------------------------
+# STATIC FILES — frontend SPA (Vite build output)
+# -------------------------------------------------------------
+# Mount last so API routes take priority. The existence check means
+# running the backend locally without `npm run build` still works —
+# the SPA simply won't be served, but /query, /health etc. are fine.
+_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+if os.path.isdir(_frontend_dist):
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="static")

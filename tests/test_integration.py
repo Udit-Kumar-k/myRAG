@@ -1,6 +1,11 @@
 import os
 # Prevent connection failures to database placeholders during tests
 os.environ["DATABASE_URL"] = ""
+# Enable mock authentication so tests can send "Bearer mock-token" without
+# hitting real Supabase JWT validation. This mirrors the MOCK_AUTH=true
+# flag used in local dev — the tests explicitly opt into mock mode rather
+# than relying on the (now-removed) unconditional mock-token string bypass.
+os.environ["MOCK_AUTH"] = "true"
 
 import unittest
 from contextlib import asynccontextmanager

@@ -3,10 +3,15 @@
 
 # Local database fallback
 data/local_db.json
-data/indexes/
 data/ab_comparison_results.md
 data/calibration_details.json
 data/confidence_calibration.png
+
+# Raw PDFs — large source files, not committed (re-download with indexing.py)
+data/raw/
+
+# data/indexes/ is intentionally NOT ignored — .pkl and .faiss files are
+# tracked via Git LFS (see .gitattributes) so HF Spaces can load them at startup.
 
 # Python
 __pycache__/

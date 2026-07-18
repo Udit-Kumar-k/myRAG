@@ -1,3 +1,13 @@
+---
+title: NyayBot
+emoji: ⚖️
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # NyayBot
 
 > Hybrid RAG legal awareness assistant over Indian statutory law — BNS, BNSS, BSA, IT Act, Consumer Protection Act.
