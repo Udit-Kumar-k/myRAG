@@ -153,3 +153,23 @@ class LegalRAGChain:
             "history":  history,
             "question": question,
         })
+
+    def expand_query(self, question: str) -> str:
+        """Translates colloquial query into legal keywords/concepts."""
+        self._init_llm()
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are an expert legal assistant. Translate the user's informal question about Indian law into a space-separated list of formal legal keywords, concepts, and Act references.
+If you are not absolutely sure about a specific Section number, output only the general Act name and keywords. Do NOT hallucinate section numbers.
+Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
+
+Example:
+User: "Someone stole my identity online and took a loan in my name."
+Output: identity theft online fraud cheating BNS cheating by personation computer IT Act Section 66C Section 319"""),
+            ("human", "{question}")
+        ])
+        chain = prompt | self._llm | StrOutputParser()
+        try:
+            return chain.invoke({"question": question}).strip()
+        except Exception as e:
+            print(f"Query expansion failed: {e}. Falling back to original query.")
+            return question

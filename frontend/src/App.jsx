@@ -520,7 +520,7 @@ function App() {
                 {[
                   ['BNS',      'What does BNS say about cybercrime?'],
                   ['CONSUMER', 'My landlord is not returning my deposit'],
-                  ['CYBER',    'Someone sent me a fake UPI screenshot, what law applies?'],
+                  ['CYBER',    'What are the penalties for hacking under the Information Technology Act?'],
                 ].map(([tag, text]) => (
                   <button
                     key={tag}

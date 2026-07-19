@@ -295,8 +295,22 @@ class LegalRAGPipeline:
         # Step 1: Routing
         namespace = route_query(query_text)
         
+        # Step 1.5: Query Expansion (translate colloquial to legal terms)
+        expanded_query = query_text
+        try:
+            from src.backend.chain import LegalRAGChain
+            provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
+            api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("GEMINI_API_KEY")
+            if api_key:
+                chain = LegalRAGChain()
+                expanded_query = chain.expand_query(query_text)
+                print(f"Original query: {query_text}")
+                print(f"Expanded query: {expanded_query}")
+        except Exception as e:
+            print(f"Query expansion failed or skipped: {e}")
+
         # Step 2 & 3: Dual Retrieval and RRF Merge (top 20 candidate set)
-        candidates = self.retrieve(query_text, target_namespace=namespace, top_n=20)
+        candidates = self.retrieve(expanded_query, target_namespace=namespace, top_n=20)
         
         if not candidates:
             return {
@@ -313,7 +327,7 @@ class LegalRAGPipeline:
         # ensuring the reranker actually sees the relevant sentences.
         MAX_RERANK_CHARS = 2048
         reranker = self.load_reranker()
-        pairs = [[query_text, self.smart_truncate(cand["text"], query_text, MAX_RERANK_CHARS)] for cand in candidates]
+        pairs = [[expanded_query, self.smart_truncate(cand["text"], expanded_query, MAX_RERANK_CHARS)] for cand in candidates]
         
         # Run cross-encoder scoring
         rerank_scores = reranker.predict(pairs, batch_size=4)

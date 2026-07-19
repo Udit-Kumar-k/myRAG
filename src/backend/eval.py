@@ -152,11 +152,11 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
     },
     {
         "id": "general_02",
-        "category": "general",
-        "question": "Someone sent me a fake UPI payment screenshot to scam me. What legal action can I take?",
-        "expected_namespace": "all",
-        "ground_truth_keywords": ["UPI", "fraud", "cheating", "FIR", "IT Act"]
-    },
+        "category": "criminal",
+        "question": "What is the punishment for cheating by personation under BNS?",
+        "expected_namespace": "criminal",
+        "ground_truth_keywords": ["cheating", "personation", "BNS", "punished"]
+    }
 ]
 
 
