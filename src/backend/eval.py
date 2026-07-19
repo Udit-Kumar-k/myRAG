@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import re
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 
@@ -194,7 +195,7 @@ def run_local_evaluation(pipeline: Any, chain: Any) -> Dict[str, Any]:
 
         for chunk in retrieved_chunks:
             chunk_text = chunk.get("text", "").lower()
-            if any(kw in chunk_text for kw in keywords):
+            if any(re.search(r"\b" + re.escape(kw) + r"\b", chunk_text) for kw in keywords):
                 found_target = True
                 break
 
@@ -202,10 +203,10 @@ def run_local_evaluation(pipeline: Any, chain: Any) -> Dict[str, Any]:
         # retrieval failures from gate failures
         if not found_target:
             ns = res.get("namespace_searched", "all")
-            candidates = pipeline.retrieve(item["question"], target_namespace=ns, top_n=5)
+            candidates = pipeline.retrieve(item["question"], target_namespace=ns, top_n=20)
             for chunk in candidates:
                 chunk_text = chunk.get("text", "").lower()
-                if any(kw in chunk_text for kw in keywords):
+                if any(re.search(r"\b" + re.escape(kw) + r"\b", chunk_text) for kw in keywords):
                     found_target = True
                     break
 

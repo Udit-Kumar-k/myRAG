@@ -89,7 +89,7 @@ def route_query(query: str) -> str:
     }
 
     max_score = max(scores.values())
-    if max_score == 0:
+    if max_score <= 1:
         return "all"
 
     tied = [ns for ns, s in scores.items() if s == max_score]
@@ -226,6 +226,58 @@ class LegalRAGPipeline:
         merged = self.rrf_merge(all_dense_results, all_sparse_results, k=60, temporal_boost=temporal_boost)
         return merged[:top_n]
 
+    def smart_truncate(self, text: str, query: str, max_chars: int = 2048) -> str:
+        """
+        Extracts a window of text of length max_chars centered around the first
+        occurrence of query keywords, to avoid truncation issues on CPU.
+        """
+        if len(text) <= max_chars:
+            return text
+            
+        # Extract clean alphanumeric keywords from query (excluding short words)
+        query_words = re.findall(r"\b\w{3,}\b", query.lower())
+        if not query_words:
+            return text[:max_chars]
+            
+        # Find the positions of the matches
+        text_lower = text.lower()
+        match_positions = []
+        for word in query_words:
+            for m in re.finditer(r"\b" + re.escape(word) + r"\b", text_lower):
+                match_positions.append(m.start())
+                
+        if not match_positions:
+            # Fallback to simple substring search if word boundaries don't match
+            for word in query_words:
+                start = 0
+                while True:
+                    pos = text_lower.find(word, start)
+                    if pos == -1:
+                        break
+                    match_positions.append(pos)
+                    start = pos + len(word)
+                    
+        if not match_positions:
+            return text[:max_chars]
+            
+        # Find the first match and center the window around it
+        first_match = min(match_positions)
+        start_idx = max(0, first_match - max_chars // 2)
+        end_idx = start_idx + max_chars
+        
+        # If the window goes past the end of the text, shift it back
+        if end_idx > len(text):
+            end_idx = len(text)
+            start_idx = max(0, end_idx - max_chars)
+            
+        # Align to word boundaries if possible
+        if start_idx > 0:
+            space_idx = text.rfind(" ", max(0, start_idx - 50), start_idx)
+            if space_idx != -1:
+                start_idx = space_idx + 1
+                
+        return text[start_idx : start_idx + max_chars]
+
     def query(self, query_text: str, conversation_id: str = "") -> Dict[str, Any]:
         """
         Runs the full retrieval pipeline including routing, dual search,
@@ -256,13 +308,12 @@ class LegalRAGPipeline:
             }
 
         # Step 4: Cross-Encoder Reranking
-        # Truncate text to 2048 chars for reranking — the reranker needs
-        # enough context to judge relevance, but full 16k-char statute sections
-        # are unnecessary. A 2048 char limit (~500 tokens) is optimal for accuracy,
-        # and has a tiny memory footprint (~16MB) that is completely safe from CPU OOM.
+        # We use a smart truncation window of 2048 characters centered around
+        # the query terms. This keeps sequence length small (fast on CPU) while
+        # ensuring the reranker actually sees the relevant sentences.
         MAX_RERANK_CHARS = 2048
         reranker = self.load_reranker()
-        pairs = [[query_text, cand["text"][:MAX_RERANK_CHARS]] for cand in candidates]
+        pairs = [[query_text, self.smart_truncate(cand["text"], query_text, MAX_RERANK_CHARS)] for cand in candidates]
         
         # Run cross-encoder scoring
         rerank_scores = reranker.predict(pairs, batch_size=4)
