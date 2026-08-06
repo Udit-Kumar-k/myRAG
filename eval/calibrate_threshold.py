@@ -16,26 +16,35 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.backend.eval import EVAL_QUERIES
 
 OUT_OF_SCOPE_QUERIES = [
-    "What is the capital of France?",
-    "Who won the FIFA World Cup in 2022?",
-    "What is the stock price of Apple today?",
-    "Write a Python function to reverse a string.",
-    "What are the best tourist spots in Italy?",
-    "Explain the theory of general relativity.",
-    "What is the history of the Eiffel Tower?",
-    "Who is the current prime minister of the United Kingdom?",
-    "How do I make sourdough bread at home?",
-    "What is the GDP of China?",
-    "Explain the rules of cricket.",
-    "Who wrote the Harry Potter books?",
-    "What is the distance between Earth and Moon?",
-    "How does a nuclear power plant generate electricity?",
-    "What is the formula for compound interest?",
-    "What programming language should I learn first?",
-    "What are the best movies of 2024?",
-    "How do I fix a leaking pipe?",
-    "What is the plot of Breaking Bad?",
-    "What is the weather in Tokyo today?",
+    # Tax & Corporate Law (Not in indexed statutory corpus)
+    "What is the corporate income tax rate for domestic companies under Income Tax Act?",
+    "How do I file GST returns monthly using GSTR-3B?",
+    "What is the capital gains tax on selling equity shares after 1 year?",
+    "What is the penalty for late filing of Income Tax Return under Section 234F?",
+    "What are the eligibility criteria for Input Tax Credit under GST?",
+    
+    # Intellectual Property & Patent Law (Unindexed)
+    "What is the procedure for registering a patent under the Indian Patents Act 1970?",
+    "How long does copyright protection last for musical compositions?",
+    "What is trademark infringement under the Trade Marks Act 1999?",
+
+    # Non-existent / Invalid Section Queries
+    "What is the punishment under Section 999 of Bharatiya Nyaya Sanhita?",
+    "What does Section 789 of BNSS say about summary trials?",
+    "What is Section 555 of the Information Technology Act?",
+    "What is the sentence for violating Section 888 of the BSA?",
+
+    # International / Foreign Law
+    "What are the requirements for H-1B visa application in the United States?",
+    "What is the GDPR requirement for data protection officer appointment in the EU?",
+    "How does UK contract law handle frustration of contract?",
+
+    # Colloquial queries lacking statutory context or details
+    "It's been 3 months since I filed my FIR and the police haven't told me anything.",
+    "My client gave me a bounced cheque and I don't know what to do next.",
+    "Someone hacked my account and sent money away yesterday.",
+    "Can my landlord kick me out without notice tomorrow morning?",
+    "What happens if I miss my court date next week?",
 ]
 
 def run_real_calibration() -> List[Dict[str, Any]]:
