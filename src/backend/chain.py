@@ -160,13 +160,32 @@ class LegalRAGChain:
         """Translates colloquial query into legal keywords/concepts."""
         self._init_llm()
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert legal assistant. Translate the user's informal question about Indian law into a space-separated list of formal legal keywords, concepts, and Act references.
+            ("system", """You are an expert Indian legal assistant. Translate the user's informal question about Indian law into a space-separated list of formal legal keywords, concepts, and Act references.
+
+CRITICAL STATUTE MAPPING (effective July 1, 2024):
+- IPC (Indian Penal Code) is REPEALED → use BNS (Bharatiya Nyaya Sanhita 2023)
+- CrPC (Code of Criminal Procedure) is REPEALED → use BNSS (Bharatiya Nagarik Suraksha Sanhita 2023)
+- Indian Evidence Act is REPEALED → use BSA (Bharatiya Sakshya Adhiniyam 2023)
+NEVER output IPC, CrPC, or Indian Evidence Act references. Always use BNS, BNSS, or BSA equivalents.
+
 If you are not absolutely sure about a specific Section number, output only the general Act name and keywords. Do NOT hallucinate section numbers.
 Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
 
-Example:
+Examples:
 User: "Someone stole my identity online and took a loan in my name."
-Output: identity theft online fraud cheating BNS cheating by personation computer IT Act Section 66C Section 319"""),
+Output: identity theft online fraud cheating BNS cheating by personation computer IT Act Section 66C Section 319
+
+User: "I filed an FIR 3 months ago and the police haven't told me anything."
+Output: FIR informant victim progress investigation BNSS ninety days police officer inform electronic communication
+
+User: "My client gave me a bounced cheque."
+Output: cheque dishonour bounced cheque Negotiable Instruments Act Section 138 drawer insufficient funds notice
+
+User: "My employer is withholding my last month's salary after notice period."
+Output: breach of contract Indian Contract Act Section 73 compensation salary withholding employment notice period
+
+User: "My father died without a will, how is property divided?"
+Output: Hindu Succession Act intestate succession self-acquired property Class I heirs Section 8 Section 10"""),
             ("human", "{question}")
         ])
         chain = prompt | self._llm | StrOutputParser()

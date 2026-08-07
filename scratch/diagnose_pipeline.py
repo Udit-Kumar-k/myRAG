@@ -21,7 +21,10 @@ if not ok:
 
 print("\n=== STEP 2: Create pipeline ===")
 from src.backend.retrieval import LegalRAGPipeline
-threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.02))
+# Use the same default as main.py (0.65). The old 0.02 fallback was a
+# diagnostic convenience that could leak into a real server session if this
+# script's shell later launched uvicorn with the same env.
+threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
 pipeline = LegalRAGPipeline(im, confidence_threshold=threshold)
 print(f"Pipeline created OK with confidence_threshold={threshold}")
 

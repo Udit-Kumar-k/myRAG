@@ -45,7 +45,8 @@ BANKING_KEYWORDS = [
     # NOTE: bare "payment" removed — it matches "Payment of Wages Act",
     # "Payment of Bonus Act", etc. and misfiled them into banking namespace.
     # "digital payment" (below) is specific enough.
-    "cheque bounce", "negotiable instrument",
+    "cheque bounce", "bounced cheque", "cheque dishonour", "dishonour of cheque",
+    "negotiable instrument", "section 138",
     "financial fraud", "credit", "debit", "mortgage", "insurance",
     "nbfc", "microfinance", "digital payment",
 ]
