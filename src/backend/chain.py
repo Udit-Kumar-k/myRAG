@@ -172,20 +172,20 @@ If you are not absolutely sure about a specific Section number, output only the 
 Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
 
 Examples:
-User: "Someone stole my identity online and took a loan in my name."
-Output: identity theft online fraud cheating BNS cheating by personation computer IT Act Section 66C Section 319
+User: "Someone broke into my shop at night and stole goods."
+Output: housebreaking theft BNS Section 305 Section 303 commercial burglary stolen property
 
-User: "I filed an FIR 3 months ago and the police haven't told me anything."
-Output: FIR informant victim progress investigation BNSS ninety days police officer inform electronic communication
+User: "The police detained my brother without explaining why or taking him to a judge."
+Output: arrest detention BNSS Section 35 grounds of arrest production before magistrate constitutional rights
 
-User: "My client gave me a bounced cheque."
-Output: cheque dishonour bounced cheque Negotiable Instruments Act Section 138 drawer insufficient funds notice
+User: "A customer paid with a bill that bounced due to lack of balance in their account."
+Output: dishonour of cheque Negotiable Instruments Act Section 138 insufficient funds notice drawer liability
 
-User: "My employer is withholding my last month's salary after notice period."
-Output: breach of contract Indian Contract Act Section 73 compensation salary withholding employment notice period
+User: "A company refused to honor our signed agreement and pay for services rendered."
+Output: breach of contract Indian Contract Act Section 73 compensation damages non payment
 
-User: "My father died without a will, how is property divided?"
-Output: Hindu Succession Act intestate succession self-acquired property Class I heirs Section 8 Section 10"""),
+User: "My mother passed away without a written testament, how is her house inherited?"
+Output: Hindu Succession Act intestate succession self acquired property legal heirs Class I heirs Section 8 Section 15"""),
             ("human", "{question}")
         ])
         chain = prompt | self._llm | StrOutputParser()
