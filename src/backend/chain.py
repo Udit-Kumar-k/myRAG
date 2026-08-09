@@ -172,11 +172,11 @@ If you are not absolutely sure about a specific Section number, output only the 
 Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
 
 Examples:
-User: "Someone broke into my shop at night and stole goods."
-Output: housebreaking theft BNS Section 305 Section 303 commercial burglary stolen property
+User: "I reported a crime two months ago but the investigating officer has not given me any update on the case."
+Output: BNSS investigation inform informant victim ninety days progress report police officer electronic communication Section 193
 
-User: "The police detained my brother without explaining why or taking him to a judge."
-Output: arrest detention BNSS Section 35 grounds of arrest production before magistrate constitutional rights
+User: "A fraudster pretended to be a bank employee and convinced me to share my OTP, then transferred funds from my account."
+Output: cheating by personation IT Act Section 66D computer resource impersonation bank fraud online unauthorized transfer BNS Section 319
 
 User: "A customer paid with a bill that bounced due to lack of balance in their account."
 Output: dishonour of cheque Negotiable Instruments Act Section 138 insufficient funds notice drawer liability
@@ -185,7 +185,7 @@ User: "A company refused to honor our signed agreement and pay for services rend
 Output: breach of contract Indian Contract Act Section 73 compensation damages non payment
 
 User: "My mother passed away without a written testament, how is her house inherited?"
-Output: Hindu Succession Act intestate succession self acquired property legal heirs Class I heirs Section 8 Section 15"""),
+Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs Section 15 Section 16"""),
             ("human", "{question}")
         ])
         chain = prompt | self._llm | StrOutputParser()
