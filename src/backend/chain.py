@@ -181,8 +181,11 @@ Output: cheating by personation IT Act Section 66D computer resource impersonati
 User: "A customer paid with a bill that bounced due to lack of balance in their account."
 Output: dishonour of cheque Negotiable Instruments Act Section 138 insufficient funds notice drawer liability
 
+User: "An employer did not pay the agreed salary to a worker who completed the notice period and resigned."
+Output: Indian Contract Act Section 73 breach of contract compensation unpaid salary Payment of Wages Act employee dues notice period
+
 User: "A company refused to honor our signed agreement and pay for services rendered."
-Output: breach of contract Indian Contract Act Section 73 compensation damages non payment
+Output: breach of contract Indian Contract Act Section 73 compensation damages
 
 User: "My mother passed away without a written testament, how is her house inherited?"
 Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs Section 15 Section 16"""),

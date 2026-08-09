@@ -28,6 +28,9 @@ CYBER_KEYWORDS = [
     "intermediary", "digital", "electronic", "computer", "network",
     "data breach", "unauthorized access", "cyber terrorism",
     "obscene content", "defamation online", "email", "website",
+    # Colloquial attack-vector phrasings not covered above
+    "malicious link", "otp", "otp fraud", "account hacked", "lost money online",
+    "bank account hacked", "suspicious link", "suspicious message",
 ]
 
 CONSUMER_KEYWORDS = [

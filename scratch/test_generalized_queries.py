@@ -47,17 +47,22 @@ SCENARIOS = [
     {
         "label": "Scenario 4 — Withheld Final Salary",
         "query": "I resigned from my job with proper notice but my former boss is refusing to clear my final pending salary.",
+        # FALSIFIABLE: refused is NOT a passing outcome.
+        # Root cause of refusal is BNS Section 317 contamination in expansion prompt (now fixed).
+        # If this still refuses after the fix, retrieval for salary disputes is broken.
         "audit": [
-            "If answered: should cite Indian Contract Act and/or labour law, not criminal law",
-            "If refused: acceptable — gate should prevent low-confidence answers",
+            "MUST be answered (not refused) — confidence must reach >= 0.65",
+            "Must cite Indian Contract Act Section 73 and/or Payment of Wages Act — not BNS criminal law",
+            "Must NOT cite BNS Sections (e.g. 317, 272, 340) for a salary dispute",
         ],
     },
     {
-        "label": "Scenario 5 — Mother's Intestate Succession (3 children)",
-        "query": "My mother passed away without leaving a will. She had a self-acquired house. Her three children — two sons and a daughter — want to know how ownership is divided.",
+        "label": "Scenario 5 — Mother's Intestate Succession",
+        # Headcount NOT given — model must identify heirs from context and state equal division.
+        "query": "My mother passed away last year without making a will. She owned a house she had bought herself. Her children want to know how the property will be divided among them.",
         "audit": [
             "Must cite Hindu Succession Act Section 15 (female Hindu intestate) — NOT Section 8 (male)",
-            "Must state each of the 3 children gets 1/3 share (equal division) — NOT 1/4 or other fractions",
+            "Must state children inherit equally — must NOT fabricate unequal shares between sons and daughter",
             "Must NOT invent a Telangana or AP state amendment",
         ],
     },
