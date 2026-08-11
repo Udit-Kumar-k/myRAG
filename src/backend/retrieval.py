@@ -53,17 +53,35 @@ BANKING_KEYWORDS = [
     "financial fraud", "credit", "debit", "mortgage", "insurance",
     "nbfc", "microfinance", "digital payment",
 ]
+CIVIL_KEYWORDS = [
+    # Employment and salary disputes (route to general — ICA/Payment of Wages Act)
+    # T4 diagnostic: expanded+general puts ICA at rank 2; expanded+all buries it at rank 13
+    # because BNS has far more chunks and dominates RRF merge in the all namespace.
+    "salary", "wages", "employment", "employer", "employee",
+    "notice period", "termination", "wrongful termination",
+    "labour", "labor", "payment of wages", "provident fund",
+    "resigned", "resignation", "dismissed", "dismissal",
+    "contract of employment", "appointment letter",
+    # Inheritance and succession (route to general — Hindu Succession Act)
+    "inheritance", "succession", "intestate", "will", "testament",
+    "heir", "legal heir", "property division", "estate",
+    # Civil contract disputes (route to general — Indian Contract Act)
+    "breach of contract", "specific performance", "injunction",
+    "civil suit", "damages", "compensation for breach",
+]
 
 
 def route_query(query: str) -> str:
     """
     Classifies a legal query to a subject namespace.
-    Returns: 'criminal', 'cyber', 'consumer', 'banking', or 'all'.
+    Returns: 'criminal', 'cyber', 'consumer', 'banking', 'general', or 'all'.
 
     Most statutory law questions hit 'criminal' (BNS/BNSS/BSA);
     IT Act / online questions hit 'cyber';
     product / service complaints hit 'consumer';
-    financial / banking questions hit 'banking'.
+    financial / banking questions hit 'banking';
+    salary / employment / succession / civil contract hit 'general'
+      (isolates ICA, Payment of Wages, Hindu Succession from BNS chunk volume).
     Ties and ambiguous queries fall back to 'all' (searches every namespace).
     """
     q_lower = query.lower()
@@ -84,12 +102,14 @@ def route_query(query: str) -> str:
     cyber_score    = get_score(CYBER_KEYWORDS)
     consumer_score = get_score(CONSUMER_KEYWORDS)
     banking_score  = get_score(BANKING_KEYWORDS)
+    civil_score    = get_score(CIVIL_KEYWORDS)
 
     scores = {
         "criminal": criminal_score,
         "cyber":    cyber_score,
         "consumer": consumer_score,
         "banking":  banking_score,
+        "general":  civil_score,
     }
 
     max_score = max(scores.values())
@@ -286,7 +306,12 @@ class LegalRAGPipeline:
         """
         Runs the full retrieval pipeline including routing, dual search,
         RRF merge, cross-encoder reranking, and confidence threshold gate.
-        
+
+        If initial confidence is below the threshold and the query contains
+        cyber-domain keywords, a second search is attempted against the
+        isolated 'cyber' namespace (IT Act / cyber crime chunks only).
+        The higher of the two scores is used.
+
         Returns a dict:
         {
             "query": query_text,
@@ -348,7 +373,38 @@ class LegalRAGPipeline:
         
         # Top-1 score is the confidence score
         confidence = top_chunks[0]["relevance_score"] if top_chunks else 0.0
-        
+
+        # Step 4b: Cyber-namespace fallback
+        # If confidence is below the gate AND the query contains at least one
+        # cyber keyword, retry search on the isolated 'cyber' namespace.
+        # This handles queries like "clicked a malicious link" where the 'all'
+        # namespace mixes in off-topic criminal/banking chunks that dilute scores.
+        q_lower_fb = query_text.lower()
+        cyber_keyword_hit = any(
+            (kw in q_lower_fb) for kw in CYBER_KEYWORDS
+        )
+        if confidence < self.confidence_threshold and cyber_keyword_hit and namespace != "cyber":
+            print(f"[Cyber fallback] Initial confidence {confidence:.4f} < gate; retrying on isolated cyber namespace.")
+            fb_candidates = self.retrieve(expanded_query, target_namespace="cyber", top_n=20)
+            if fb_candidates:
+                fb_pairs = [
+                    [expanded_query, self.smart_truncate(c["text"], expanded_query, MAX_RERANK_CHARS)]
+                    for c in fb_candidates
+                ]
+                fb_scores = reranker.predict(fb_pairs, batch_size=4)
+                for c, s in zip(fb_candidates, fb_scores):
+                    c["relevance_score"] = float(s)
+                fb_candidates.sort(key=lambda x: x["relevance_score"], reverse=True)
+                fb_confidence = fb_candidates[0]["relevance_score"]
+                print(f"[Cyber fallback] Cyber-namespace confidence: {fb_confidence:.4f}")
+                if fb_confidence > confidence:
+                    print(f"[Cyber fallback] Adopting cyber-namespace result (better score).")
+                    top_chunks = fb_candidates[:5]
+                    confidence = fb_confidence
+                    namespace = "cyber (fallback)"
+                else:
+                    print(f"[Cyber fallback] Original result retained (cyber-namespace did not improve score).")
+
         # Step 5: Confidence Gate
         refused = confidence < self.confidence_threshold
         
