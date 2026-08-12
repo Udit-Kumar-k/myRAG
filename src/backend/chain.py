@@ -109,7 +109,13 @@ class LegalRAGChain:
         self._chain = None
 
     def _init_llm(self):
-        """Lazy loads the LangChain dynamic integration model (Gemini or Groq)."""
+        """Lazy loads the LangChain dynamic integration model (Gemini or Groq).
+
+        Uses temperature=0.0 globally. Legal citation responses do not benefit from
+        sampling variance — the same statute either applies or it doesn't. Determinism
+        also eliminates the property crime expansion variance (0.21 vs 0.78 confidence
+        on identical queries) that was traced to IPC-number bleed at temperature=0.1.
+        """
         if self._llm is None:
             if not self.api_key:
                 raise ValueError(
@@ -122,7 +128,7 @@ class LegalRAGChain:
                 self._llm = ChatGroq(
                     model=self.model_name,
                     groq_api_key=self.api_key,
-                    temperature=0.1,
+                    temperature=0.0,
                     max_tokens=2048,
                 )
             else:
@@ -130,7 +136,7 @@ class LegalRAGChain:
                 self._llm = ChatGoogleGenerativeAI(
                     model=self.model_name,
                     google_api_key=self.api_key,
-                    temperature=0.1,
+                    temperature=0.0,
                     max_tokens=2048,
                 )
             print("LLM initialized successfully.")
@@ -156,8 +162,20 @@ class LegalRAGChain:
             "question": question,
         })
 
+    def _init_expansion_llm(self):
+        # Deprecated: expansion now uses self._llm (temperature=0.0 globally).
+        # Kept as a no-op so any external callers don't break.
+        self._init_llm()
+
     def expand_query(self, question: str) -> str:
-        """Translates colloquial query into legal keywords/concepts."""
+        """
+        Translates colloquial query into legal keywords for embedding retrieval.
+
+        Uses self._llm at temperature=0.0 (set globally in _init_llm).
+        Post-processes output to strip section numbers that cannot exist in the
+        indexed corpus (e.g. 'BNS Section 380' — BNS has 358 sections; 380 is an
+        IPC number relabeled BNS without updating the number).
+        """
         self._init_llm()
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert Indian legal assistant. Translate the user's informal question about Indian law into a space-separated list of formal legal keywords, concepts, and Act references.
@@ -194,12 +212,42 @@ User: "A company refused to honor our signed agreement and pay for services rend
 Output: breach of contract Indian Contract Act Section 73 compensation damages
 
 User: "My mother passed away without a written testament, how is her house inherited?"
-Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs Section 15 Section 16"""),
+Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs Section 15 Section 16
+
+User: "Someone broke into my house at night and stole electronics and cash."
+Output: BNS theft dwelling house building housebreaking lurking house-trespass property"""),
             ("human", "{question}")
         ])
         chain = prompt | self._llm | StrOutputParser()
         try:
-            return chain.invoke({"question": question}).strip()
+            raw_output = chain.invoke({"question": question}).strip()
+            return self._strip_section_numbers(raw_output)
         except Exception as e:
             print(f"Query expansion failed: {e}. Falling back to original query.")
             return question
+
+    @staticmethod
+    def _strip_section_numbers(text: str) -> str:
+        """
+        Unconditionally strips section number references from expansion output.
+
+        Rationale:
+        1. Expansion is designed to bridge colloquial language to formal statutory vocabulary
+           (e.g., 'bounced cheque' -> 'dishonour of cheque Negotiable Instruments Act').
+        2. Section numbers in expansion queries create two failure modes:
+           a) Out-of-range numbers (e.g. BNS Section 380/454 from IPC bleed) produce zero matches.
+           b) In-range wrong numbers (e.g. BNS Section 103 for cyber, 317 for salary, 35 for arrest)
+              match real chunks in BM25 and actively pull retrieval to the wrong legal domain.
+        3. Removing section numbers leaves act names and semantic concept keywords, which
+           consistently retrieve the correct chunks via embedding + BM25 without section-number interference.
+        """
+        import re
+        # Strip explicit section patterns like 'Section 193', 'Section 66D', 'sec. 454', 'u/s 302'
+        text = re.sub(
+            r'\b(?:Section|Sec|u/s|s\.)\s*\d+[A-Za-z]?\b',
+            '',
+            text,
+            flags=re.IGNORECASE
+        )
+        # Normalize whitespace after stripping
+        return ' '.join(text.split())

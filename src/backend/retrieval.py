@@ -19,6 +19,13 @@ CRIMINAL_KEYWORDS = [
     "anticipatory bail", "custody", "sentence", "death penalty",
     "life imprisonment", "hurt", "grievous hurt", "mischief",
     "criminal conspiracy", "attempt", "abetment",
+    # Colloquial property crime vocabulary — routes break-in/theft queries to
+    # criminal namespace instead of falling to 'all'.
+    # "stole" + "broke into" = score 2, triggering criminal routing.
+    # Without this, 27k general-namespace chunks dilute BNS burglary chunks in RRF.
+    "stole", "stolen", "robbed", "rob", "looted", "snatched",
+    "burglary", "housebreaking", "break-in", "broke into", "breaking into",
+    "shoplifting", "extortion", "trespass", "criminal trespass",
 ]
 
 CYBER_KEYWORDS = [

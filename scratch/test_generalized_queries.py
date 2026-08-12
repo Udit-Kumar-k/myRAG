@@ -66,6 +66,25 @@ SCENARIOS = [
             "Must NOT invent a Telangana or AP state amendment",
         ],
     },
+    {
+        "label": "Scenario 6 — Arrest Without Grounds / No Magistrate Production",
+        "query": "The police arrested my brother without telling him why and haven't produced him before a judge in over 24 hours.",
+        "audit": [
+            "Must cite BNSS (not CrPC) for arrest and detention rights",
+            "Must cite Section 47 (grounds of arrest communicated) — NOT Section 35",
+            "Must cite Section 58 (24-hour magistrate production rule) — NOT Section 35",
+            "Must NOT fabricate a non-existent BNSS section for this right",
+        ],
+    },
+    {
+        "label": "Scenario 7 — Shop Break-in and Theft",
+        "query": "Someone broke into my shop at night and stole goods worth several lakhs.",
+        "audit": [
+            "Must cite BNS (not IPC) for burglary/theft offences",
+            "Must NOT hallucinate a non-existent BNS section number not in retrieved context",
+            "Should recommend filing FIR and mention BNSS for procedural steps",
+        ],
+    },
 ]
 
 # Load indexes
@@ -132,3 +151,76 @@ for s in SCENARIOS:
 
 print(f"\n{'='*70}")
 print("Benchmark complete.")
+
+# ============================================================
+# DELTA DIAGNOSTIC — arrest/detention and property crimes
+# Models are already loaded above; no second process needed.
+# Unexpanded vs expanded side by side for each domain.
+# ============================================================
+DELTA_QUERIES = [
+    (
+        "arrest_detention",
+        "The police arrested my brother without telling him why "
+        "and haven't produced him before a judge in over 24 hours.",
+        "BNSS ss.47 (grounds communicated) + s.58 (24hr magistrate production)",
+    ),
+    (
+        "property_crime",
+        "Someone broke into my shop at night and stole goods worth several lakhs.",
+        "BNS burglary/theft sections",
+    ),
+]
+
+from src.backend.chain import LegalRAGChain as _LegalRAGChain
+
+print(f"\n{'='*70}")
+print("DELTA DIAGNOSTIC — unexpanded vs expanded confidence")
+print("(Tests whether expansion is bridging, neutral, or hurting for each domain)")
+print(f"{'='*70}")
+
+delta_results = []
+for domain, query, expected in DELTA_QUERIES:
+    print(f"\n[{domain}]  Query: {query}")
+    print(f"  Expected retrieval target: {expected}")
+    print(f"  Raw routing: {route_query(query)}")
+
+    # Run 1: bypass expansion
+    orig_expand = _LegalRAGChain.expand_query
+    _LegalRAGChain.expand_query = lambda self, q: q
+    try:
+        r_raw = pipeline.query(query)
+    finally:
+        _LegalRAGChain.expand_query = orig_expand
+
+    conf_raw = r_raw["confidence_score"]
+    top_raw  = [c["metadata"].get("document_name","?") for c in r_raw.get("retrieved_chunks",[])][:3]
+    print(f"  UNEXPANDED  conf={conf_raw:.4f}  sources={top_raw}")
+
+    # Run 2: normal expansion
+    r_exp = pipeline.query(query)
+    conf_exp = r_exp["confidence_score"]
+    top_exp  = [c["metadata"].get("document_name","?") for c in r_exp.get("retrieved_chunks",[])][:3]
+    print(f"  EXPANDED    conf={conf_exp:.4f}  sources={top_exp}")
+
+    delta = conf_exp - conf_raw
+    if abs(delta) < 0.03:
+        interp = "neutral"
+    elif delta > 0:
+        interp = "expansion HELPS"
+    else:
+        interp = "expansion HURTS"
+    print(f"  delta={delta:+.4f}  -> {interp}")
+    delta_results.append((domain, conf_raw, conf_exp, delta))
+
+print(f"\n{'='*70}")
+print(f"DELTA SUMMARY")
+print(f"  {'Domain':<22} {'Raw':>8} {'Expanded':>10} {'Delta':>8}")
+print("-"*55)
+for domain, raw, exp, delta in delta_results:
+    print(f"  {domain:<22} {raw:>8.4f} {exp:>10.4f} {delta:>+8.4f}")
+print()
+print("  Salary reference (from diagnostic task-449 + task-488):")
+print("    expanded/all=rank13, expanded/general=rank2, final conf=0.7012")
+print("    Raw query: ICA absent from top-20 in both all+general namespaces")
+print("    Conclusion: expansion was load-bearing for salary; namespace routing fixed dilution")
+
