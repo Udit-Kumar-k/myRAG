@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -95,16 +95,23 @@ class LegalRAGChain:
                 if self.provider == "groq"
                 else os.environ.get("GEMINI_API_KEY")
             )
-        if model_name:
-            self.model_name = model_name
-        else:
+        if not model_name:
             env_model = os.environ.get("LLM_MODEL")
             if env_model:
                 self.model_name = env_model
             else:
                 self.model_name = (
-                    "llama-3.3-70b-versatile" if self.provider == "groq" else "gemini-2.5-flash"
+                    "llama-3.3-70b-versatile" if self.provider == "groq" else "gemini-3.6-flash"
                 )
+        else:
+            self.model_name = model_name
+
+        # Ensure model_name matches provider
+        if self.provider == "gemini" and ("llama" in self.model_name.lower() or "groq" in self.model_name.lower()):
+            self.model_name = "gemini-3.6-flash"
+        elif self.provider == "groq" and "gemini" in self.model_name.lower():
+            self.model_name = "llama-3.3-70b-versatile"
+
         self._llm = None
         self._chain = None
 
@@ -153,14 +160,100 @@ class LegalRAGChain:
             self._chain = prompt | self._llm | StrOutputParser()
         return self._chain
 
+    @staticmethod
+    def verify_citations(answer: str, context_chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
+        """
+        Robust domain-agnostic post-generation citation verifier:
+        1. Extracts (Section Number, Act Name) pairs and standalone Act names from answer text.
+        2. Verifies whether cited Acts and Sections co-occur in retrieved context chunks.
+        3. Strips unverified section numbers directly inline from body text (preventing confident fabrications in body text).
+        4. Redacts fabricated state-amendment modifications (e.g. Telangana Amendment).
+        """
+        if not context_chunks or not answer:
+            return answer, []
+
+        import re
+        retrieved_texts = [c.get("text", "") for c in context_chunks]
+        retrieved_acts = []
+        for c in context_chunks:
+            meta = c.get("metadata", {})
+            if "act_name" in meta:
+                retrieved_acts.append(str(meta["act_name"]).lower())
+            if "document_name" in meta:
+                retrieved_acts.append(str(meta["document_name"]).lower())
+        
+        combined_retrieved_text = " ".join(retrieved_texts).lower()
+        combined_act_metadata = " ".join(retrieved_acts)
+
+        unverified_claims = []
+
+        # --- CHECK 1: Act-and-Section Pair Verification ---
+        pair_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?([A-Z][A-Za-z0-9\s,\(\)]+?Act(?:,\s*\d{4})?)'
+        
+        matches = list(re.finditer(pair_pattern, answer))
+        for match in matches:
+            full_phrase = match.group(0)
+            sec_num = match.group(1)
+            act_name = match.group(2).strip()
+
+            verified = False
+            act_words = [w.lower() for w in re.findall(r'\b[A-Za-z]+\b', act_name) if len(w) > 3 and w.lower() not in ["the", "act", "with", "from", "that", "code", "sanhita"]]
+            modifiers = [w for w in act_words if w in ["telangana", "andhra", "pradesh", "amendment", "karnataka", "maharashtra", "tamil", "nadu", "delhi"]]
+            
+            for chunk_text in retrieved_texts:
+                c_text_lower = chunk_text.lower()
+                has_sec = bool(re.search(r'\b(?:section|sec|u/s|s\.)?\s*' + re.escape(sec_num) + r'\b', c_text_lower))
+                has_act = any(w in c_text_lower or w in combined_act_metadata for w in act_words) if act_words else True
+                has_modifiers = all(m in c_text_lower or m in combined_act_metadata for m in modifiers)
+                if has_sec and has_act and has_modifiers:
+                    verified = True
+                    break
+            
+            if not verified:
+                unverified_claims.append(full_phrase)
+                clean_act = act_name
+                for m in modifiers:
+                    if m not in combined_retrieved_text and m not in combined_act_metadata:
+                        clean_act = re.sub(r'\(?\b' + re.escape(m) + r'\b\s*(?:amendment)?\)?', '', clean_act, flags=re.IGNORECASE).strip()
+                
+                replacement = f"the {clean_act}"
+                answer = answer.replace(full_phrase, replacement)
+
+        # --- CHECK 2: Standalone Section Number Verification ---
+        sec_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\b'
+        for match in re.finditer(sec_pattern, answer, flags=re.IGNORECASE):
+            full_sec = match.group(0)
+            sec_num = match.group(1)
+            
+            if not re.search(r'\b(?:section|sec|u/s|s\.)\s*' + re.escape(sec_num) + r'\b', combined_retrieved_text):
+                if full_sec not in unverified_claims:
+                    unverified_claims.append(full_sec)
+                    answer = re.sub(r'\b' + re.escape(full_sec) + r'\b', 'the applicable provisions', answer)
+
+        # --- CHECK 3: Standalone State Amendment Verification ---
+        state_modifiers = ["telangana", "andhra pradesh", "andhra", "karnataka", "maharashtra", "tamil nadu", "delhi"]
+        for mod in state_modifiers:
+            if mod in answer.lower() and mod not in combined_retrieved_text and mod not in combined_act_metadata:
+                if mod not in unverified_claims:
+                    unverified_claims.append(f"State Amendment: {mod}")
+                    answer = re.sub(r'\b' + re.escape(mod) + r'\b\s*(?:amendment)?', '', answer, flags=re.IGNORECASE)
+
+        if unverified_claims:
+            print(f"WARNING: Citation Verification Guard detected and redacted uncited claim(s): {unverified_claims}")
+
+        answer = re.sub(r'\s+', ' ', answer).strip()
+        return answer, unverified_claims
+
     def run(self, question: str, context_chunks: List[Dict[str, Any]], history: List[Any]) -> str:
         """Runs the question-answering chain with context and message history."""
         chain = self.get_chain()
-        return chain.invoke({
+        raw_answer = chain.invoke({
             "context":  format_context(context_chunks),
             "history":  history,
             "question": question,
         })
+        verified_answer, _ = self.verify_citations(raw_answer, context_chunks)
+        return verified_answer
 
     def _init_expansion_llm(self):
         # Deprecated: expansion now uses self._llm (temperature=0.0 globally).
