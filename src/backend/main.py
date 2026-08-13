@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
             print(f"WARNING: Auto-build failed: {e}. Server will start without indexes.")
 
     env_threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
-    threshold = max(0.30, env_threshold)
+    threshold = max(0.65, env_threshold)
     print(f"Confidence threshold configured: {env_threshold} (enforced safety floor -> resolved: {threshold})")
     rag_pipeline = LegalRAGPipeline(index_manager, confidence_threshold=threshold)
 

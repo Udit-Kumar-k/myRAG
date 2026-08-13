@@ -191,28 +191,29 @@ DOMAIN SCOPING — override BNS/BNSS/BSA default for these topics:
 - Cheque dishonour, negotiable instrument, bounced cheque -> Negotiable Instruments Act only. NEVER output BNS or BNSS.
 - Inheritance, succession, will -> Hindu Succession Act or Indian Succession Act only.
 - Cyber fraud, phishing, hacking, online fraud -> IT Act (Information Technology Act 2000). BNS is secondary only.
+- Shop / store / warehouse / commercial break-in or theft -> BNS theft dwelling house building housebreaking lurking house-trespass property. NEVER output 'shopbreaking' or 'shop breaking' (not BNS statutory terms).
 
 If you are not absolutely sure about a specific Section number, output only the general Act name and keywords. Do NOT hallucinate section numbers.
 Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
 
 Examples:
 User: "I reported a crime two months ago but the investigating officer has not given me any update on the case."
-Output: BNSS investigation inform informant victim ninety days progress report police officer electronic communication Section 193
+Output: BNSS investigation inform informant victim ninety days progress report police officer electronic communication
 
 User: "A fraudster pretended to be a bank employee and convinced me to share my OTP, then transferred funds from my account."
-Output: cheating by personation IT Act Section 66D computer resource impersonation bank fraud online unauthorized transfer BNS Section 319
+Output: cheating by personation IT Act computer resource impersonation bank fraud online unauthorized transfer BNS
 
 User: "A customer paid with a bill that bounced due to lack of balance in their account."
-Output: dishonour of cheque Negotiable Instruments Act Section 138 insufficient funds notice drawer liability
+Output: dishonour of cheque Negotiable Instruments Act insufficient funds notice drawer liability
 
 User: "An employer did not pay the agreed salary to a worker who completed the notice period and resigned."
-Output: Indian Contract Act Section 73 breach of contract compensation unpaid salary Payment of Wages Act employee dues notice period
+Output: Indian Contract Act breach of contract compensation unpaid salary Payment of Wages Act employee dues notice period
 
 User: "A company refused to honor our signed agreement and pay for services rendered."
-Output: breach of contract Indian Contract Act Section 73 compensation damages
+Output: breach of contract Indian Contract Act compensation damages
 
 User: "My mother passed away without a written testament, how is her house inherited?"
-Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs Section 15 Section 16
+Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs
 
 User: "Someone broke into my house at night and stole electronics and cash."
 Output: BNS theft dwelling house building housebreaking lurking house-trespass property"""),
