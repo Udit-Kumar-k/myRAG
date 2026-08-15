@@ -59,3 +59,35 @@ CREATE POLICY "Users can manage their own messages"
     TO authenticated
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
+
+-- -------------------------------------------------------------
+-- TABLE: feedback
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS feedback (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    message_id TEXT,
+    query TEXT,
+    rating TEXT NOT NULL, -- 'thumbs_up', 'thumbs_down', 'flag'
+    category TEXT, -- 'wrong_section', 'outdated_law', 'hallucination', 'incorrect_advice', 'other'
+    comment TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
+
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can insert their own feedback"
+    ON feedback
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can view their own feedback"
+    ON feedback
+    FOR SELECT
+    TO authenticated
+    USING (auth.uid() = user_id);
+

@@ -35,14 +35,51 @@ function App() {
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
 
-  // ── Auth UI State ────────────────────────────────────
-  const [authMode, setAuthMode]       = useState('signin'); // 'signin'|'signup'|'forgot'
-  const [authEmail, setAuthEmail]     = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authConfirm, setAuthConfirm] = useState('');
-  const [authError, setAuthError]     = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authSuccess, setAuthSuccess] = useState('');
+  // ── Modals & Feedback State ───────────────────────────
+  const [showScopeModal, setShowScopeModal]   = useState(false);
+  const [flagModalOpen, setFlagModalOpen]     = useState(false);
+  const [flagCategory, setFlagCategory]       = useState('wrong_section');
+  const [flagComment, setFlagComment]         = useState('');
+  const [activeFlagIdx, setActiveFlagIdx]     = useState(null);
+  const [feedbackGiven, setFeedbackGiven]     = useState({});
+
+  const submitFeedback = async (msgIndex, rating, category = 'other', comment = '') => {
+    const prevUserMsg = messages[msgIndex - 1];
+    try {
+      await fetchWithTimeout(`${API_BASE_URL}/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token || 'mock-token'}`
+        },
+        body: JSON.stringify({
+          conversation_id: activeConvId,
+          query: prevUserMsg?.content || '',
+          rating,
+          category,
+          comment
+        })
+      }, 5000);
+      setFeedbackGiven(prev => ({ ...prev, [msgIndex]: rating }));
+    } catch (err) {
+      console.error('Feedback error:', err);
+    }
+  };
+
+  const openFlagModal = (msgIndex) => {
+    setActiveFlagIdx(msgIndex);
+    setFlagCategory('wrong_section');
+    setFlagComment('');
+    setFlagModalOpen(true);
+  };
+
+  const submitFlagFeedback = async () => {
+    if (activeFlagIdx !== null) {
+      await submitFeedback(activeFlagIdx, 'flag', flagCategory, flagComment);
+      setFlagModalOpen(false);
+      setActiveFlagIdx(null);
+    }
+  };
 
   // ── Auth ────────────────────────────────────────────────
   useEffect(() => {
@@ -465,6 +502,103 @@ function App() {
         </div>
       </header>
 
+      {/* Top Disclaimer Banner */}
+      <div className="disclaimer-banner">
+        <span className="disclaimer-icon">⚖️</span>
+        <span className="disclaimer-text">
+          <strong>Legal Information Notice:</strong> NyayBot provides automated awareness grounded exclusively in indexed Indian statutory enactments. It is not a law firm and does not provide formal legal advice. Always consult a qualified advocate for actionable legal counsel.
+        </span>
+        <button className="btn-scope-link" onClick={() => setShowScopeModal(true)}>
+          Scope & Limitations →
+        </button>
+      </div>
+
+      {/* Scope Modal */}
+      {showScopeModal && (
+        <div className="modal-backdrop" onClick={() => setShowScopeModal(false)}>
+          <div className="modal-dialog scope-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>⚖️ Corpus Scope & System Limitations</h3>
+              <button className="btn-close" onClick={() => setShowScopeModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="scope-section">
+                <h4>✅ Grounded & Verified Statutory Domains</h4>
+                <ul className="scope-list">
+                  <li><strong>Substantive Criminal Law:</strong> Bharatiya Nyaya Sanhita 2023 (BNS)</li>
+                  <li><strong>Criminal Procedure:</strong> Bharatiya Nagarik Suraksha Sanhita 2023 (BNSS)</li>
+                  <li><strong>Law of Evidence:</strong> Bharatiya Sakshya Adhiniyam 2023 (BSA)</li>
+                  <li><strong>Cyber Law:</strong> Information Technology Act, 2000</li>
+                  <li><strong>Consumer Protection:</strong> Consumer Protection Act, 2019</li>
+                  <li><strong>Commercial Cheque Dishonour:</strong> Negotiable Instruments Act, 1881 (s.138)</li>
+                  <li><strong>Civil Contracts & Wages:</strong> Indian Contract Act 1872, Payment of Wages Act 1936</li>
+                  <li><strong>Intestate Succession:</strong> Hindu Succession Act 1956 (s.15/s.8)</li>
+                  <li><strong>Central Acts:</strong> ~860 central statutes from indiacode.nic.in</li>
+                </ul>
+              </div>
+              <div className="scope-section out-of-scope">
+                <h4>❌ Explicitly Out-of-Scope / Untested</h4>
+                <ul className="scope-list">
+                  <li>State-specific amendments and local tenancy acts (e.g., Delhi/Maharashtra Rent Control)</li>
+                  <li>Judicial case law precedents and Supreme Court / High Court case citations</li>
+                  <li>Motor accident compensation (MACT claims) and traffic appeals</li>
+                  <li>Matrimonial trial procedures and family court applications</li>
+                  <li>Taxation (Income Tax, GST, Customs) & Corporate ROC filing compliance</li>
+                </ul>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-auth-primary" onClick={() => setShowScopeModal(false)}>Acknowledge</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flag Modal */}
+      {flagModalOpen && (
+        <div className="modal-backdrop" onClick={() => setFlagModalOpen(false)}>
+          <div className="modal-dialog flag-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🚩 Flag Incorrect Legal Citation / Answer</h3>
+              <button className="btn-close" onClick={() => setFlagModalOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: '13px', color: 'var(--text-1)', marginBottom: '12px' }}>
+                Help us keep NyayBot accurate. What issue did you observe with this answer?
+              </p>
+              <div className="auth-field">
+                <label className="auth-label">Issue Category</label>
+                <select 
+                  className="auth-input"
+                  value={flagCategory}
+                  onChange={e => setFlagCategory(e.target.value)}
+                >
+                  <option value="wrong_section">Wrong Section Number Cited</option>
+                  <option value="outdated_law">Cited Repealed Law (IPC/CrPC instead of BNS/BNSS)</option>
+                  <option value="hallucination">Hallucinated / Fabricated Statute</option>
+                  <option value="incorrect_advice">Factually Incorrect Legal Information</option>
+                  <option value="other">Other Issue</option>
+                </select>
+              </div>
+              <div className="auth-field">
+                <label className="auth-label">Optional Comments / Correct Citation</label>
+                <textarea
+                  className="auth-input"
+                  rows={3}
+                  placeholder="e.g., The cited section does not apply to non-residential premises..."
+                  value={flagComment}
+                  onChange={e => setFlagComment(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-ghost" onClick={() => setFlagModalOpen(false)}>Cancel</button>
+              <button className="btn-auth-primary" onClick={submitFlagFeedback}>Submit Report</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-top">
@@ -500,10 +634,12 @@ function App() {
             <strong>{user.user_metadata?.full_name || user.email}</strong>
           </div>
           <div className="sidebar-info-row">
-            <span>Sources: Indian statutory law corpus</span>
+            <span>Engine: Grounded RAG</span>
           </div>
           <div className="sidebar-info-row">
-            <span>Confidence gate enforced</span>
+            <button className="btn-sidebar-scope" onClick={() => setShowScopeModal(true)}>
+              📋 View Corpus Coverage
+            </button>
           </div>
         </div>
       </aside>
@@ -599,6 +735,41 @@ function App() {
                       </span>
                     </div>
                   )}
+
+                  {/* Message Actions & Prominent Disclaimer Footer */}
+                  {msg.role === 'assistant' && !msg.refused && (
+                    <div className="msg-actions-row">
+                      <div className="feedback-buttons">
+                        <button
+                          className={`btn-action-icon ${feedbackGiven[i] === 'thumbs_up' ? 'active-up' : ''}`}
+                          title="Accurate and helpful"
+                          onClick={() => submitFeedback(i, 'thumbs_up')}
+                        >
+                          👍
+                        </button>
+                        <button
+                          className={`btn-action-icon ${feedbackGiven[i] === 'thumbs_down' ? 'active-down' : ''}`}
+                          title="Unhelpful"
+                          onClick={() => submitFeedback(i, 'thumbs_down')}
+                        >
+                          👎
+                        </button>
+                        <button
+                          className={`btn-action-icon ${feedbackGiven[i] === 'flag' ? 'active-flag' : ''}`}
+                          title="Flag incorrect section / citation"
+                          onClick={() => openFlagModal(i)}
+                        >
+                          🚩 Flag Issue
+                        </button>
+                        {feedbackGiven[i] && (
+                          <span className="feedback-ack">Feedback saved</span>
+                        )}
+                      </div>
+                      <div className="disclaimer-badge">
+                        ⚖️ Legal Awareness Only · Not Formal Legal Advice
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))
@@ -610,7 +781,7 @@ function App() {
                 <div className="loading-dots">
                   <span /><span /><span />
                 </div>
-                <span className="loading-text">Searching legal corpus… (first query loads AI model, may take 1-2 min)</span>
+                <span className="loading-text">Searching legal corpus…</span>
               </div>
             </div>
           )}

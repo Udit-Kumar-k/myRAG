@@ -186,9 +186,10 @@ class LegalRAGChain:
         combined_act_metadata = " ".join(retrieved_acts)
 
         unverified_claims = []
+        verified_sections = set()
 
         # --- CHECK 1: Act-and-Section Pair Verification ---
-        pair_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?([A-Z][A-Za-z0-9\s,\(\)]+?Act(?:,\s*\d{4})?)'
+        pair_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?([A-Z][A-Za-z0-9\s,\(\)]+?(?:Act|Sanhita|Adhiniyam|Code)(?:,\s*\d{4})?)'
         
         matches = list(re.finditer(pair_pattern, answer))
         for match in matches:
@@ -197,7 +198,7 @@ class LegalRAGChain:
             act_name = match.group(2).strip()
 
             verified = False
-            act_words = [w.lower() for w in re.findall(r'\b[A-Za-z]+\b', act_name) if len(w) > 3 and w.lower() not in ["the", "act", "with", "from", "that", "code", "sanhita"]]
+            act_words = [w.lower() for w in re.findall(r'\b[A-Za-z]+\b', act_name) if len(w) > 3 and w.lower() not in ["the", "act", "with", "from", "that", "code", "sanhita", "adhiniyam"]]
             modifiers = [w for w in act_words if w in ["telangana", "andhra", "pradesh", "amendment", "karnataka", "maharashtra", "tamil", "nadu", "delhi"]]
             
             for chunk_text in retrieved_texts:
@@ -209,7 +210,9 @@ class LegalRAGChain:
                     verified = True
                     break
             
-            if not verified:
+            if verified:
+                verified_sections.add(sec_num)
+            else:
                 unverified_claims.append(full_phrase)
                 clean_act = act_name
                 for m in modifiers:
@@ -225,7 +228,10 @@ class LegalRAGChain:
             full_sec = match.group(0)
             sec_num = match.group(1)
             
-            if not re.search(r'\b(?:section|sec|u/s|s\.)\s*' + re.escape(sec_num) + r'\b', combined_retrieved_text):
+            if sec_num in verified_sections:
+                continue
+            
+            if not re.search(r'\b(?:section|sec|u/s|s\.)?\s*' + re.escape(sec_num) + r'\b', combined_retrieved_text):
                 if full_sec not in unverified_claims:
                     unverified_claims.append(full_sec)
                     answer = re.sub(r'\b' + re.escape(full_sec) + r'\b', 'the applicable provisions', answer)

@@ -208,7 +208,88 @@ class DatabaseManager:
             return history
         except Exception as e:
             print(f"Failed to read from local DB: {e}")
-            return []
+    def save_feedback(self, uid: str, feedback: Dict[str, Any]):
+        """Saves user feedback on an answer to Supabase or local DB."""
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
+            try:
+                supabase.table("feedback").insert({
+                    "conversation_id": feedback.get("conversation_id"),
+                    "user_id": uid,
+                    "message_id": feedback.get("message_id"),
+                    "query": feedback.get("query"),
+                    "rating": feedback.get("rating"),
+                    "category": feedback.get("category", "other"),
+                    "comment": feedback.get("comment", "")
+                }).execute()
+                return
+            except Exception as e:
+                print(f"Supabase feedback save error: {e}. Falling back to local file.")
+
+        try:
+            with open(self.local_db_path, "r") as f:
+                data = json.load(f)
+            if "feedback" not in data:
+                data["feedback"] = []
+            data["feedback"].append({
+                "id": str(uuid.uuid4()),
+                "user_id": uid,
+                "timestamp": time.time(),
+                **feedback
+            })
+            with open(self.local_db_path, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save feedback to local DB: {e}")
+
+    def get_telemetry(self) -> Dict[str, Any]:
+        """Calculates query drift, refusal rates, confidence, and namespace metrics."""
+        total_queries = 0
+        refused_queries = 0
+        conf_scores = []
+        ns_counts: Dict[str, int] = {}
+        provider_counts: Dict[str, int] = {}
+        feedback_counts = {"thumbs_up": 0, "thumbs_down": 0, "flag": 0}
+
+        try:
+            with open(self.local_db_path, "r") as f:
+                data = json.load(f)
+
+            for key, val in data.items():
+                if key == "feedback":
+                    for fb in val:
+                        r = fb.get("rating", "other")
+                        feedback_counts[r] = feedback_counts.get(r, 0) + 1
+                    continue
+                if isinstance(val, dict):
+                    for conv_id, msgs in val.items():
+                        for m in msgs:
+                            if m.get("role") == "assistant":
+                                total_queries += 1
+                                if m.get("refused", False):
+                                    refused_queries += 1
+                                c = m.get("confidence_score")
+                                if c is not None:
+                                    conf_scores.append(float(c))
+                                ns = m.get("namespace_searched", "unknown")
+                                ns_counts[ns] = ns_counts.get(ns, 0) + 1
+                                prov = m.get("provider", "unknown")
+                                provider_counts[prov] = provider_counts.get(prov, 0) + 1
+        except Exception as e:
+            print(f"Error calculating telemetry: {e}")
+
+        avg_conf = float(sum(conf_scores) / len(conf_scores)) if conf_scores else 0.0
+        refusal_rate = float(refused_queries / total_queries) if total_queries else 0.0
+
+        return {
+            "total_queries": total_queries,
+            "refused_queries": refused_queries,
+            "refusal_rate": round(refusal_rate, 4),
+            "average_confidence": round(avg_conf, 4),
+            "namespaces": ns_counts,
+            "providers": provider_counts,
+            "feedback": feedback_counts,
+            "timestamp": time.time()
+        }
 
 # Initialize database manager
 db_manager = DatabaseManager()
@@ -272,6 +353,17 @@ class QueryResponse(BaseModel):
     sources: List[SourceMetadata]
     confidence_score: float
     refused: bool
+    provider: Optional[str] = "groq"
+    model: Optional[str] = "llama-3.3-70b-versatile"
+    latency_ms: Optional[int] = 0
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str
+    message_id: Optional[str] = None
+    query: Optional[str] = None
+    rating: str  # 'thumbs_up', 'thumbs_down', 'flag'
+    category: Optional[str] = "other"  # 'wrong_section', 'outdated_law', 'hallucination', 'incorrect_advice', 'other'
+    comment: Optional[str] = ""
 
 # -------------------------------------------------------------
 # ENDPOINTS
@@ -293,6 +385,8 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
         raise HTTPException(status_code=500, detail="Internal server error. Check backend logs.")
 
 def _run_query_inner(req: QueryRequest, uid: str):
+    start_t = time.time()
+
     # 1. Run Retrieval Pipeline
     pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
 
@@ -313,28 +407,20 @@ def _run_query_inner(req: QueryRequest, uid: str):
             "relevance_score": chunk["relevance_score"]
         })
 
+    raw_provider = getattr(rag_chain, "provider", "groq")
+    raw_model = getattr(rag_chain, "model_name", "llama-3.3-70b-versatile")
+    provider = raw_provider if isinstance(raw_provider, str) else "groq"
+    model_name = raw_model if isinstance(raw_model, str) else "llama-3.3-70b-versatile"
+
     if refused:
         answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
     else:
         # 2. Fetch past conversation history for LangChain context window.
-        #
-        # Single persistence path: always source context from db_manager.get_history()
-        # (the `messages` table, or local JSON fallback). This is the same store
-        # the UI reads from via /history, so context and display are always in sync.
-        #
-        # Rationale for dropping SQLChatMessageHistory:
-        # - It auto-creates a separate LangChain-managed table with no RLS policy,
-        #   independent of the reviewed schema.sql tables.
-        # - If its read or write fails, it raises a 500 even after the LLM has
-        #   already generated a good answer, and neither table gets the exchange saved.
-        # - Two stores can drift: /history shows one thing, the LLM sees another.
         history_msgs = []
         try:
             from langchain_core.messages import HumanMessage, AIMessage
             history_records = db_manager.get_history(uid, req.conversation_id)
             for rec in history_records[-10:]:
-                # Skip refused turns — they had no grounded answer, so they add
-                # no useful context for the LLM's next reply.
                 if rec.get("refused", False):
                     continue
                 if rec.get("role") == "user" or rec.get("question"):
@@ -342,21 +428,21 @@ def _run_query_inner(req: QueryRequest, uid: str):
                 elif rec.get("role") == "assistant" or rec.get("answer"):
                     history_msgs.append(AIMessage(content=rec.get("content") or rec.get("answer")))
         except Exception as e:
-            # Non-fatal: history context is best-effort. Log and proceed without it
-            # rather than 500-ing when the LLM could still answer correctly.
             print(f"WARNING: Error loading conversation history for context: {e}")
 
         # 3. Generate Answer using LangChain
-        # Provider is selected by LLM_PROVIDER env var (e.g. Gemini or Groq/Llama).
         try:
             answer = rag_chain.run(req.question, retrieved_chunks, history_msgs)
         except Exception as e:
             print(f"LLM chain execution error: {e}")
             raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
 
-    # 4. Persist exchange to the single authoritative store (messages table / local JSON).
-    # Both the LLM context path (above) and the UI /history endpoint read from this
-    # same store — one system, no drift.
+    latency_ms = int((time.time() - start_t) * 1000)
+
+    # Structured telemetry logging for drift / audit tracking
+    print(f"[QUERY_TELEMETRY] uid={uid[:8]}... conv={req.conversation_id[:8]}... conf={confidence:.4f} ns={namespace_searched} refused={refused} provider={provider} model={model_name} latency_ms={latency_ms}")
+
+    # 4. Persist exchange
     user_record = {
         "role": "user",
         "content": req.question,
@@ -373,7 +459,10 @@ def _run_query_inner(req: QueryRequest, uid: str):
         "sources": sources,
         "confidence_score": confidence,
         "refused": refused,
-        "namespace_searched": namespace_searched
+        "namespace_searched": namespace_searched,
+        "provider": provider,
+        "model": model_name,
+        "latency_ms": latency_ms
     }
     db_manager.save_message(uid, req.conversation_id, assistant_record)
 
@@ -381,8 +470,23 @@ def _run_query_inner(req: QueryRequest, uid: str):
         "answer": answer,
         "sources": sources,
         "confidence_score": confidence,
-        "refused": refused
+        "refused": refused,
+        "provider": provider,
+        "model": model_name,
+        "latency_ms": latency_ms
     }
+
+@app.post("/feedback")
+def submit_feedback(req: FeedbackRequest, uid: str = Depends(authenticate_user)):
+    """Allows users to flag bad answers or submit satisfaction ratings."""
+    db_manager.save_feedback(uid, req.model_dump())
+    print(f"[USER_FEEDBACK] uid={uid[:8]}... conv={req.conversation_id[:8]}... rating={req.rating} category={req.category} comment={req.comment}")
+    return {"status": "success", "message": "Feedback recorded successfully."}
+
+@app.get("/telemetry")
+def get_telemetry_metrics():
+    """Returns query drift metrics, refusal rates, confidence, and namespace stats."""
+    return db_manager.get_telemetry()
 
 @app.get("/history/{conversation_id}")
 def get_conversation_history(conversation_id: str, uid: str = Depends(authenticate_user)):
@@ -394,7 +498,6 @@ def get_conversation_history(conversation_id: str, uid: str = Depends(authentica
 def health_check():
     """Health check endpoint."""
     loaded_ns = list(index_manager.faiss_indexes.keys())
-    # Healthy if at least one namespace is loaded
     indexes_ready = len(loaded_ns) > 0
     return {
         "status": "healthy" if indexes_ready else "uninitialized",
@@ -403,6 +506,8 @@ def health_check():
         "missing_namespaces": [ns for ns in index_manager.namespaces if ns not in index_manager.faiss_indexes],
         "embedding_model_loaded": index_manager.model is not None,
         "supabase_connected": supabase is not None,
+        "active_provider": getattr(rag_chain, "provider", "groq"),
+        "active_model": getattr(rag_chain, "model_name", "llama-3.3-70b-versatile"),
         "timestamp": time.time()
     }
 

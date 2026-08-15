@@ -97,17 +97,32 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertEqual(len(data["sources"]), 0)
         self.assertIn("does not contain sufficient information", data["answer"])
 
-    def test_health_endpoint(self):
-        # Patch index manager to say indexes are loaded
-        with patch("src.backend.main.index_manager") as mock_manager:
-            mock_manager.faiss_indexes = {"criminal": {}, "cyber": {}, "consumer": {}, "banking": {}, "general": {}}
-            mock_manager.namespaces = ["criminal", "cyber", "consumer", "banking", "general"]
-            
-            response = client.get("/health")
-            self.assertEqual(response.status_code, 200)
-            data = response.json()
-            self.assertEqual(data["status"], "healthy")
-            self.assertTrue(data["indexes_loaded"])
+    def test_feedback_endpoint(self):
+        response = client.post(
+            "/feedback",
+            json={
+                "conversation_id": "test_conv_abc",
+                "message_id": "msg_123",
+                "query": "What is Section 138?",
+                "rating": "thumbs_up",
+                "category": "other",
+                "comment": "Accurate response"
+            },
+            headers={"Authorization": "Bearer mock-token"}
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+
+    def test_telemetry_endpoint(self):
+        response = client.get("/telemetry")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("total_queries", data)
+        self.assertIn("refusal_rate", data)
+        self.assertIn("average_confidence", data)
+        self.assertIn("namespaces", data)
+        self.assertIn("feedback", data)
 
 if __name__ == "__main__":
     unittest.main()

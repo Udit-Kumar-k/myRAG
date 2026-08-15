@@ -68,19 +68,33 @@ NyayBot is a Retrieval-Augmented Generation (RAG) system that answers legal ques
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## Corpus
+## Corpus Scope & Supported Domains
 
-| Act | Namespace | Source | Why Included |
-|-----|-----------|--------|-------------|
-| Bharatiya Nyaya Sanhita 2023 (BNS) | `criminal` | PDF | Replaces IPC — substantive criminal law, in force July 1 2024 |
-| Bharatiya Nagarik Suraksha Sanhita 2023 (BNSS) | `criminal` | PDF | Replaces CrPC — criminal procedure |
-| Bharatiya Sakshya Adhiniyam 2023 (BSA) | `criminal` | PDF | Replaces Indian Evidence Act — law of evidence |
-| Information Technology Act 2000 | `cyber` | HuggingFace | Cybercrime, data protection, intermediary liability |
-| Consumer Protection Act 2019 | `consumer` | HuggingFace | Consumer rights, product liability, e-commerce |
-| Negotiable Instruments Act 1881 | `banking` | HuggingFace | Cheque bounce, promissory notes |
-| Other central/state acts | `general` | HuggingFace | Various Indian legal acts from indiacode.nic.in |
+| Subject Domain | Primary Acts Covered | Namespace | Status |
+|----------------|----------------------|-----------|--------|
+| **Substantive Criminal Law** | Bharatiya Nyaya Sanhita 2023 (BNS) | `criminal` | Verified & Hardened |
+| **Criminal Procedure & Arrest** | Bharatiya Nagarik Suraksha Sanhita 2023 (BNSS) | `criminal` | Verified & Hardened |
+| **Law of Evidence** | Bharatiya Sakshya Adhiniyam 2023 (BSA) | `criminal` | Verified & Hardened |
+| **Cyber Law & Online Offences** | Information Technology Act, 2000 | `cyber` | Verified & Hardened |
+| **Consumer Protection** | Consumer Protection Act, 2019 | `consumer` | Verified & Hardened |
+| **Commercial Cheque Dishonour** | Negotiable Instruments Act, 1881 (s.138) | `banking` | Verified & Hardened |
+| **Banking Regulation & RBI** | RBI Act 1934, Banking Regulation Act 1949 | `banking` | Verified & Hardened |
+| **Civil Contracts & Unpaid Salary** | Indian Contract Act 1872, Payment of Wages Act 1936 | `general` | Verified & Hardened |
+| **Intestate Property Succession** | Hindu Succession Act 1956 (s.15/s.8) | `general` | Verified & Hardened |
+| **Other Central Legislation** | ~860 central statutes from indiacode.nic.in | `general` | Available via general namespace |
 
-> **Excluded:** Indian Penal Code, Code of Criminal Procedure, Indian Evidence Act (all repealed July 1 2024). Filtered out during ingestion.
+### Explicit Out-of-Scope & Untested Domains
+
+The system enforces strict confidence gating (threshold: 0.65) and will **refuse** queries outside indexed statutory law. The following areas are explicitly **OUT OF SCOPE**:
+
+1. **State-Specific Amendments & Local Enactments:** State tenancy acts (e.g. Maharashtra Rent Control, Delhi Rent Control), local municipal bylaws, and state-specific amendments unless explicitly indexed.
+2. **Case Law & Judicial Precedents:** Supreme Court and High Court judgments, ratio decidendi, and citations (e.g. *AIR*, *SCC*, *SCR*).
+3. **Motor Vehicle Accidents:** Motor Vehicles Act third-party compensation claims, MACT tribunal procedures, and traffic challan appeals.
+4. **Matrimonial & Family Dispute Procedures:** Contested divorce trial proceedings, child custody battles, and maintenance applications under state family court rules.
+5. **Taxation & Corporate Filings:** Income Tax Act 1961 assessment procedures, GST tribunal appeals, Customs disputes, and ROC compliance.
+6. **Ongoing Case Strategy & Procedural Litigation:** Procedural timelines, drafting formats, and legal strategy for pending court cases.
+
+> **Repealed Acts Filter:** The Indian Penal Code (IPC), Code of Criminal Procedure (CrPC), and Indian Evidence Act were repealed on July 1, 2024. All queries referencing repealed acts are automatically mapped to their BNS/BNSS/BSA counterparts and never cited as current law.
 
 ## Chunking Strategy
 

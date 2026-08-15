@@ -10,18 +10,18 @@ def assign_namespace(act_name: str) -> str:
     act = act_name.lower()
     if any(x in act for x in ["nyaya sanhita", "nagarik suraksha", "sakshya"]):
         return "criminal"
-    elif any(x in act for x in ["information technology", "it act"]):
-        return "cyber"
-    elif "consumer" in act:
+    # Cyber: Information Technology Act and Data Protection acts
+    # Must NOT match "Indian Institutes of Information Technology" or substring words like "petit act" / "benefit act"
+    if (re.search(r'\binformation technology\b', act) or re.search(r'\bit act\b', act) or "data protection" in act):
+        if "institutes of information technology" not in act and "institute of information technology" not in act:
+            return "cyber"
+    if "consumer" in act:
         return "consumer"
-    elif any(x in act for x in ["rbi", "reserve bank", "banking", "negotiable instrument",
-                                  "digital payment"]):
-        # NOTE: bare "payment" is intentionally excluded — it matches
-        # "Payment of Wages Act", "Payment of Bonus Act", "Payment of
-        # Gratuity Act", etc. which are labour-law acts, not banking law.
+    # Banking: RBI, Reserve Bank, Banking, Negotiable Instruments, Digital Payment
+    # Must use word boundaries so 'arbitration' does not match 'rbi'
+    if re.search(r'\b(rbi|reserve bank|banking|negotiable instruments?|digital payments?)\b', act):
         return "banking"
-    else:
-        return "general"
+    return "general"
 
 
 # ── Repealed acts filter ─────────────────────────────────────────────────────
