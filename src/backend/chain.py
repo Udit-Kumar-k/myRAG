@@ -86,14 +86,16 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
 
 class LegalRAGChain:
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
+        self.gemini_key = os.environ.get("GEMINI_API_KEY")
+        self.groq_key = os.environ.get("GROQ_API_KEY")
         self.provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
         if api_key:
             self.api_key = api_key
         else:
             self.api_key = (
-                os.environ.get("GROQ_API_KEY")
+                self.groq_key
                 if self.provider == "groq"
-                else os.environ.get("GEMINI_API_KEY")
+                else self.gemini_key
             )
         if not model_name:
             env_model = os.environ.get("LLM_MODEL")
@@ -101,19 +103,27 @@ class LegalRAGChain:
                 self.model_name = env_model
             else:
                 self.model_name = (
-                    "llama-3.3-70b-versatile" if self.provider == "groq" else "gemini-3.6-flash"
+                    "gemini-3.6-flash" if self.provider == "gemini" else "openai/gpt-oss-120b"
                 )
         else:
             self.model_name = model_name
 
         # Ensure model_name matches provider
-        if self.provider == "gemini" and ("llama" in self.model_name.lower() or "groq" in self.model_name.lower()):
+        if self.provider == "gemini" and ("openai" in self.model_name.lower() or "gpt" in self.model_name.lower() or "llama" in self.model_name.lower() or "groq" in self.model_name.lower() or "qwen" in self.model_name.lower()):
             self.model_name = "gemini-3.6-flash"
         elif self.provider == "groq" and "gemini" in self.model_name.lower():
-            self.model_name = "llama-3.3-70b-versatile"
+            self.model_name = "openai/gpt-oss-120b"
 
         self._llm = None
         self._chain = None
+
+    def get_prompt(self):
+        """Builds and returns the base ChatPromptTemplate."""
+        return ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{question}"),
+        ])
 
     def _init_llm(self):
         """Lazy loads the LangChain dynamic integration model (Gemini or Groq).
@@ -152,12 +162,7 @@ class LegalRAGChain:
         """Builds and returns the LangChain query processing chain."""
         self._init_llm()
         if self._chain is None:
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", SYSTEM_PROMPT),
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{question}"),
-            ])
-            self._chain = prompt | self._llm | StrOutputParser()
+            self._chain = self.get_prompt() | self._llm | StrOutputParser()
         return self._chain
 
     @staticmethod
@@ -253,21 +258,55 @@ class LegalRAGChain:
 
         # --- CHECK 2: Standalone Section Number Verification ---
         sec_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\b'
+        unverified_sec_spans = []
         for match in re.finditer(sec_pattern, answer, flags=re.IGNORECASE):
             full_sec = match.group(0)
             sec_num = match.group(1)
 
-            # If already verified in Check 1 as a valid grounded act+section pair, skip
-            if sec_num in verified_section_nums:
+            # Extract the sentence/clause containing this section match
+            pre = answer[:match.start()]
+            post = answer[match.end():]
+            m_pre = list(re.finditer(r'(?:[\.\n\r;]\s+|\A)', pre))
+            sent_start = m_pre[-1].end() if m_pre else 0
+            m_post = re.search(r'(?:[\.\n\r;]|\Z)', post)
+            sent_end = match.end() + m_post.start() if m_post else len(answer)
+            sentence = answer[sent_start:sent_end].lower()
+
+            nearby_act_words = [
+                w for w in re.findall(r'\b[a-z]+\b', sentence)
+                if len(w) > 3 and w not in ["the", "act", "with", "from", "that", "code", "sanhita", "adhiniyam", "section", "under", "this", "also", "case", "applies", "defines", "contrast", "according", "however", "furthermore", "additionally"]
+            ]
+
+            # If nearby Act keywords exist and match verified_act_sections for this sec_num, skip
+            if nearby_act_words and any((w, sec_num) in verified_act_sections for w in nearby_act_words):
                 continue
 
-            # Check against context chunks using robust section header / keyword matcher
-            is_grounded = any(cls._has_section_in_text(sec_num, c_text) for c_text in retrieved_texts)
+            # If no specific nearby Act keywords exist in the sentence, check if this section was verified in Check 1
+            if not nearby_act_words and any(sec_num == s_num for (_, s_num) in verified_act_sections):
+                continue
+
+            # Check whether this section is grounded in a context chunk matching the sentence's Act
+            is_grounded = False
+            for chunk in context_chunks:
+                c_text = chunk.get("text", "")
+                c_meta = f"{chunk.get('metadata', {}).get('document_name', '')} {chunk.get('metadata', {}).get('act_name', '')}".lower()
+                if cls._has_section_in_text(sec_num, c_text):
+                    if nearby_act_words:
+                        if any(w in c_text.lower() or w in c_meta for w in nearby_act_words):
+                            is_grounded = True
+                            break
+                    else:
+                        is_grounded = True
+                        break
 
             if not is_grounded:
-                if full_sec not in unverified_claims:
-                    unverified_claims.append(full_sec)
-                    answer = re.sub(r'\b' + re.escape(full_sec) + r'\b', 'the applicable provisions', answer)
+                unverified_sec_spans.append((match.start(), match.end(), full_sec))
+
+        # Redact only the unverified section spans in reverse order to preserve string offsets
+        for start_idx, end_idx, full_sec in sorted(unverified_sec_spans, key=lambda x: x[0], reverse=True):
+            if full_sec not in unverified_claims:
+                unverified_claims.append(full_sec)
+            answer = answer[:start_idx] + 'the applicable provisions' + answer[end_idx:]
 
         # --- CHECK 3: Standalone State Amendment Verification ---
         state_modifiers = ["telangana", "andhra pradesh", "andhra", "karnataka", "maharashtra", "tamil nadu", "delhi"]
@@ -284,23 +323,63 @@ class LegalRAGChain:
         return answer, unverified_claims
 
     def run(self, question: str, context_chunks: List[Dict[str, Any]], history: List[Any]) -> str:
-        """Runs the question-answering chain with context and message history."""
+        """Runs the question-answering chain with context and message history with multi-tier fallback."""
         chain = self.get_chain()
         inputs = {
             "context":  format_context(context_chunks),
             "history":  history,
             "question": question,
         }
+        raw_answer = None
         try:
             raw_answer = chain.invoke(inputs)
         except Exception as e:
-            if self.provider == "groq" and ("429" in str(e) or "rate_limit" in str(e).lower()):
-                print(f"Warning: Primary model hit rate limit ({e}). Falling back to llama-3.1-8b-instant.")
-                from langchain_groq import ChatGroq
-                fallback_llm = ChatGroq(model="llama-3.1-8b-instant", api_key=self.api_key, temperature=0.0)
-                fallback_chain = self.get_prompt() | fallback_llm | StrOutputParser()
-                raw_answer = fallback_chain.invoke(inputs)
-            else:
+            print(f"Warning: Primary generation with {self.provider} ({self.model_name}) failed: {e}. Initiating fallback sequence...")
+
+            # Fallback Tier 1: Gemini secondary model (if primary is Gemini)
+            if self.provider == "gemini" and self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    gemini_fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
+                    print(f"Attempting Gemini fallback model: {gemini_fallback_model}")
+                    fb_llm = ChatGoogleGenerativeAI(model=gemini_fallback_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=2048)
+                    fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
+                    raw_answer = fb_chain.invoke(inputs)
+                except Exception as fb_err1:
+                    print(f"Gemini fallback model failed: {fb_err1}")
+
+            # Fallback Tier 2: Groq open-weights (if Groq API key available)
+            if raw_answer is None and self.groq_key:
+                try:
+                    from langchain_groq import ChatGroq
+                    groq_model = os.environ.get("FALLBACK_MODEL", "openai/gpt-oss-120b")
+                    print(f"Attempting Groq fallback model: {groq_model}")
+                    fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=2048)
+                    fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
+                    raw_answer = fb_chain.invoke(inputs)
+                except Exception as fb_err2:
+                    print(f"Groq fallback model failed: {fb_err2}")
+                    try:
+                        groq_fast = "openai/gpt-oss-20b"
+                        print(f"Attempting fast Groq fallback: {groq_fast}")
+                        fb_llm_fast = ChatGroq(model=groq_fast, api_key=self.groq_key, temperature=0.0, max_tokens=2048)
+                        fb_chain_fast = self.get_prompt() | fb_llm_fast | StrOutputParser()
+                        raw_answer = fb_chain_fast.invoke(inputs)
+                    except Exception as fb_err3:
+                        print(f"Fast Groq fallback failed: {fb_err3}")
+
+            # Fallback Tier 3: Gemini (if primary was Groq and Groq failed)
+            if raw_answer is None and self.provider == "groq" and self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    print("Attempting Gemini fallback for Groq primary...")
+                    fb_llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=self.gemini_key, temperature=0.0, max_tokens=2048)
+                    fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
+                    raw_answer = fb_chain.invoke(inputs)
+                except Exception as fb_err4:
+                    print(f"Gemini fallback failed: {fb_err4}")
+
+            if raw_answer is None:
                 raise e
 
         verified_answer, _ = self.verify_citations(raw_answer, context_chunks)
@@ -315,18 +394,12 @@ class LegalRAGChain:
         """
         Translates colloquial query into legal keywords for embedding retrieval.
 
-        Uses fast llama-3.1-8b-instant at temperature=0.0 on Groq for 10x throughput
-        and to avoid daily token quota contention with 70b generation.
+        Uses primary model (Gemini gemini-3.6-flash by default) with automatic fallback to Groq/secondary models.
         Post-processes output to strip section numbers that cannot exist in the
-        indexed corpus (e.g. 'BNS Section 380' — BNS has 358 sections; 380 is an
-        IPC number relabeled BNS without updating the number).
+        indexed corpus.
         """
-        if self.provider == "groq":
-            from langchain_groq import ChatGroq
-            expansion_llm = ChatGroq(model="llama-3.1-8b-instant", api_key=self.api_key, temperature=0.0)
-        else:
-            self._init_llm()
-            expansion_llm = self._llm
+        self._init_llm()
+        expansion_llm = self._llm
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert Indian legal assistant. Translate the user's informal question about Indian law into a space-separated list of formal legal keywords, concepts, and Act references.
@@ -375,7 +448,27 @@ Output: BNS Section 331 housebreaking lurking house-trespass after sunset theft 
             raw_output = chain.invoke({"question": question}).strip()
             return self._strip_section_numbers(raw_output)
         except Exception as e:
-            print(f"Query expansion failed: {e}. Falling back to original query.")
+            print(f"Primary query expansion failed ({e}). Attempting fallback expansion...")
+            if self.groq_key:
+                try:
+                    from langchain_groq import ChatGroq
+                    groq_exp_llm = ChatGroq(model="openai/gpt-oss-20b", api_key=self.groq_key, temperature=0.0)
+                    fb_chain = prompt | groq_exp_llm | StrOutputParser()
+                    raw_output = fb_chain.invoke({"question": question}).strip()
+                    return self._strip_section_numbers(raw_output)
+                except Exception as fb_err:
+                    print(f"Groq expansion fallback failed: {fb_err}")
+            if self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    gem_exp_llm = ChatGoogleGenerativeAI(model="gemini-flash-latest", google_api_key=self.gemini_key, temperature=0.0)
+                    fb_chain = prompt | gem_exp_llm | StrOutputParser()
+                    raw_output = fb_chain.invoke({"question": question}).strip()
+                    return self._strip_section_numbers(raw_output)
+                except Exception as fb_err2:
+                    print(f"Gemini secondary expansion fallback failed: {fb_err2}")
+
+            print("All query expansions failed. Falling back to original query.")
             return question
 
     @staticmethod

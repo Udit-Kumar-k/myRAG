@@ -10,8 +10,8 @@ os.environ["RERANKER_DEVICE"] = "cpu"
 
 from dotenv import load_dotenv
 load_dotenv()
-os.environ["LLM_PROVIDER"] = "groq"
-os.environ["LLM_MODEL"] = "llama-3.3-70b-versatile"
+os.environ["LLM_PROVIDER"] = "gemini"
+os.environ["LLM_MODEL"] = "gemini-3.6-flash"
 
 from src.backend.indexing import LegalIndexManager
 from src.backend.retrieval import LegalRAGPipeline, route_query

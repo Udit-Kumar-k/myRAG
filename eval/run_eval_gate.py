@@ -81,7 +81,7 @@ def run_ragas_evaluation(dataset_records: List[Dict[str, Any]]) -> float:
         # Instantiate LLM evaluator
         if provider == "groq":
             from langchain_groq import ChatGroq
-            eval_model = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
+            eval_model = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
             evaluator_llm = ChatGroq(
                 model=eval_model,
                 groq_api_key=api_key,

@@ -354,8 +354,8 @@ class QueryResponse(BaseModel):
     sources: List[SourceMetadata]
     confidence_score: float
     refused: bool
-    provider: Optional[str] = "groq"
-    model: Optional[str] = "llama-3.3-70b-versatile"
+    provider: Optional[str] = "gemini"
+    model: Optional[str] = "gemini-3.6-flash"
     latency_ms: Optional[int] = 0
 
 class FeedbackRequest(BaseModel):
@@ -408,10 +408,10 @@ def _run_query_inner(req: QueryRequest, uid: str):
             "relevance_score": chunk["relevance_score"]
         })
 
-    raw_provider = getattr(rag_chain, "provider", "groq")
-    raw_model = getattr(rag_chain, "model_name", "llama-3.3-70b-versatile")
-    provider = raw_provider if isinstance(raw_provider, str) else "groq"
-    model_name = raw_model if isinstance(raw_model, str) else "llama-3.3-70b-versatile"
+    raw_provider = getattr(rag_chain, "provider", "gemini")
+    raw_model = getattr(rag_chain, "model_name", "gemini-3.6-flash")
+    provider = raw_provider if isinstance(raw_provider, str) else "gemini"
+    model_name = raw_model if isinstance(raw_model, str) else "gemini-3.6-flash"
 
     if refused:
         answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
@@ -507,8 +507,8 @@ def health_check():
         "missing_namespaces": [ns for ns in index_manager.namespaces if ns not in index_manager.faiss_indexes],
         "embedding_model_loaded": index_manager.model is not None,
         "supabase_connected": supabase is not None,
-        "active_provider": getattr(rag_chain, "provider", "groq"),
-        "active_model": getattr(rag_chain, "model_name", "llama-3.3-70b-versatile"),
+        "active_provider": getattr(rag_chain, "provider", "gemini"),
+        "active_model": getattr(rag_chain, "model_name", "gemini-3.6-flash"),
         "timestamp": time.time()
     }
 
