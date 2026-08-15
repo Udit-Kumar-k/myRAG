@@ -156,26 +156,46 @@ class LegalIndexManager:
             if not (os.path.exists(chunks_path) and os.path.exists(faiss_path) and os.path.exists(bm25_path)):
                 print(f"Namespace '{ns}' index files not found on disk. Skipping.")
                 continue
+
+            # Guard against Git LFS pointer text files (< 400 bytes containing 'git-lfs')
+            is_lfs_pointer = False
+            for p in [chunks_path, faiss_path, bm25_path]:
+                if os.path.getsize(p) < 400:
+                    try:
+                        with open(p, "rb") as f:
+                            head = f.read(100)
+                            if b"git-lfs" in head or b"oid sha256" in head:
+                                is_lfs_pointer = True
+                                break
+                    except Exception:
+                        pass
+            if is_lfs_pointer:
+                print(f"WARNING: Namespace '{ns}' index files are unresolved Git LFS pointer files (not real binaries). Skipping.")
+                continue
                 
             print(f"Loading index files for namespace: {ns}...")
-            # Load chunks
-            with open(chunks_path, "rb") as f:
-                self.chunks[ns] = pickle.load(f)
+            try:
+                # Load chunks
+                with open(chunks_path, "rb") as f:
+                    self.chunks[ns] = pickle.load(f)
+                    
+                # Load FAISS index
+                self.faiss_indexes[ns] = faiss.read_index(faiss_path)
                 
-            # Load FAISS index
-            self.faiss_indexes[ns] = faiss.read_index(faiss_path)
-            
-            # Load BM25 index
-            with open(bm25_path, "rb") as f:
-                self.bm25_indexes[ns] = pickle.load(f)
-                
-            loaded_count += 1
+                # Load BM25 index
+                with open(bm25_path, "rb") as f:
+                    self.bm25_indexes[ns] = pickle.load(f)
+                    
+                loaded_count += 1
+            except Exception as e:
+                print(f"ERROR: Failed to load index files for namespace '{ns}': {e}. Skipping.")
+                continue
                 
         if loaded_count > 0:
             print(f"Successfully loaded {loaded_count} namespace index(es) into memory.")
             return True
         else:
-            print("No namespace indexes found on disk.")
+            print("No valid namespace indexes found on disk.")
             return False
 
 if __name__ == "__main__":

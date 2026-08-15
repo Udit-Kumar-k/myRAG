@@ -161,7 +161,28 @@ class LegalRAGChain:
         return self._chain
 
     @staticmethod
-    def verify_citations(answer: str, context_chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
+    def _has_section_in_text(sec_num: str, text: str) -> bool:
+        """
+        Matches a section number in text only if:
+        1. Preceded by an explicit section keyword: 'Section 58', 'Sec. 58', 'u/s 58', 's. 58'
+        2. OR appears as a statutory bare act header: line start/bold/header followed by period & title,
+           e.g. '58. Person arrested', '**331. House-breaking', '15. General rules', '331. (1)'
+        Explicitly avoids matching incidental digits like '2 days', '15 hundred rupees', or sub-clause '(2)'.
+        """
+        import re
+        # Pattern 1: Explicit keyword prefix
+        p1 = r'\b(?:section|sec|u/s|s\.)\s*' + re.escape(sec_num) + r'\b'
+        if re.search(p1, text, flags=re.IGNORECASE):
+            return True
+        # Pattern 2: Bare act section header at line start, bold (**), header (###), or sentence boundary
+        # Must be followed by a period and space then capital letter, bracket, bold, or quote
+        p2 = r'(?:^|[\n\r]|\*\*|#+)\s*' + re.escape(sec_num) + r'\.\s+(?:[A-Z\(\"]|\*\*)'
+        if re.search(p2, text):
+            return True
+        return False
+
+    @classmethod
+    def verify_citations(cls, answer: str, context_chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
         """
         Robust domain-agnostic post-generation citation verifier:
         1. Extracts (Section Number, Act Name) pairs and standalone Act names from answer text.
@@ -181,16 +202,17 @@ class LegalRAGChain:
                 retrieved_acts.append(str(meta["act_name"]).lower())
             if "document_name" in meta:
                 retrieved_acts.append(str(meta["document_name"]).lower())
-        
-        combined_retrieved_text = " ".join(retrieved_texts).lower()
+
+        combined_retrieved_text = " ".join(retrieved_texts)
         combined_act_metadata = " ".join(retrieved_acts)
 
         unverified_claims = []
-        verified_sections = set()
+        verified_act_sections = set()  # set of (act_keyword, sec_num)
+        verified_section_nums = set()
 
         # --- CHECK 1: Act-and-Section Pair Verification ---
         pair_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?([A-Z][A-Za-z0-9\s,\(\)]+?(?:Act|Sanhita|Adhiniyam|Code)(?:,\s*\d{4})?)'
-        
+
         matches = list(re.finditer(pair_pattern, answer))
         for match in matches:
             full_phrase = match.group(0)
@@ -200,25 +222,32 @@ class LegalRAGChain:
             verified = False
             act_words = [w.lower() for w in re.findall(r'\b[A-Za-z]+\b', act_name) if len(w) > 3 and w.lower() not in ["the", "act", "with", "from", "that", "code", "sanhita", "adhiniyam"]]
             modifiers = [w for w in act_words if w in ["telangana", "andhra", "pradesh", "amendment", "karnataka", "maharashtra", "tamil", "nadu", "delhi"]]
-            
-            for chunk_text in retrieved_texts:
-                c_text_lower = chunk_text.lower()
-                has_sec = bool(re.search(r'\b(?:section|sec|u/s|s\.)?\s*' + re.escape(sec_num) + r'\b', c_text_lower))
-                has_act = any(w in c_text_lower or w in combined_act_metadata for w in act_words) if act_words else True
-                has_modifiers = all(m in c_text_lower or m in combined_act_metadata for m in modifiers)
+
+            for chunk in context_chunks:
+                c_text = chunk.get("text", "")
+                c_meta_doc = str(chunk.get("metadata", {}).get("document_name", "")).lower()
+                c_meta_act = str(chunk.get("metadata", {}).get("act_name", "")).lower()
+                c_meta = f"{c_meta_doc} {c_meta_act}"
+
+                has_sec = cls._has_section_in_text(sec_num, c_text)
+                has_act = any(w in c_text.lower() or w in c_meta for w in act_words) if act_words else True
+                has_modifiers = all(m in c_text.lower() or m in c_meta for m in modifiers)
+
                 if has_sec and has_act and has_modifiers:
                     verified = True
                     break
-            
+
             if verified:
-                verified_sections.add(sec_num)
+                for w in act_words:
+                    verified_act_sections.add((w, sec_num))
+                verified_section_nums.add(sec_num)
             else:
                 unverified_claims.append(full_phrase)
                 clean_act = act_name
                 for m in modifiers:
-                    if m not in combined_retrieved_text and m not in combined_act_metadata:
+                    if m not in combined_retrieved_text.lower() and m not in combined_act_metadata:
                         clean_act = re.sub(r'\(?\b' + re.escape(m) + r'\b\s*(?:amendment)?\)?', '', clean_act, flags=re.IGNORECASE).strip()
-                
+
                 replacement = f"the {clean_act}"
                 answer = answer.replace(full_phrase, replacement)
 
@@ -227,11 +256,15 @@ class LegalRAGChain:
         for match in re.finditer(sec_pattern, answer, flags=re.IGNORECASE):
             full_sec = match.group(0)
             sec_num = match.group(1)
-            
-            if sec_num in verified_sections:
+
+            # If already verified in Check 1 as a valid grounded act+section pair, skip
+            if sec_num in verified_section_nums:
                 continue
-            
-            if not re.search(r'\b(?:section|sec|u/s|s\.)?\s*' + re.escape(sec_num) + r'\b', combined_retrieved_text):
+
+            # Check against context chunks using robust section header / keyword matcher
+            is_grounded = any(cls._has_section_in_text(sec_num, c_text) for c_text in retrieved_texts)
+
+            if not is_grounded:
                 if full_sec not in unverified_claims:
                     unverified_claims.append(full_sec)
                     answer = re.sub(r'\b' + re.escape(full_sec) + r'\b', 'the applicable provisions', answer)
@@ -239,7 +272,7 @@ class LegalRAGChain:
         # --- CHECK 3: Standalone State Amendment Verification ---
         state_modifiers = ["telangana", "andhra pradesh", "andhra", "karnataka", "maharashtra", "tamil nadu", "delhi"]
         for mod in state_modifiers:
-            if mod in answer.lower() and mod not in combined_retrieved_text and mod not in combined_act_metadata:
+            if mod in answer.lower() and mod not in combined_retrieved_text.lower() and mod not in combined_act_metadata:
                 if mod not in unverified_claims:
                     unverified_claims.append(f"State Amendment: {mod}")
                     answer = re.sub(r'\b' + re.escape(mod) + r'\b\s*(?:amendment)?', '', answer, flags=re.IGNORECASE)
@@ -253,11 +286,23 @@ class LegalRAGChain:
     def run(self, question: str, context_chunks: List[Dict[str, Any]], history: List[Any]) -> str:
         """Runs the question-answering chain with context and message history."""
         chain = self.get_chain()
-        raw_answer = chain.invoke({
+        inputs = {
             "context":  format_context(context_chunks),
             "history":  history,
             "question": question,
-        })
+        }
+        try:
+            raw_answer = chain.invoke(inputs)
+        except Exception as e:
+            if self.provider == "groq" and ("429" in str(e) or "rate_limit" in str(e).lower()):
+                print(f"Warning: Primary model hit rate limit ({e}). Falling back to llama-3.1-8b-instant.")
+                from langchain_groq import ChatGroq
+                fallback_llm = ChatGroq(model="llama-3.1-8b-instant", api_key=self.api_key, temperature=0.0)
+                fallback_chain = self.get_prompt() | fallback_llm | StrOutputParser()
+                raw_answer = fallback_chain.invoke(inputs)
+            else:
+                raise e
+
         verified_answer, _ = self.verify_citations(raw_answer, context_chunks)
         return verified_answer
 
@@ -270,12 +315,19 @@ class LegalRAGChain:
         """
         Translates colloquial query into legal keywords for embedding retrieval.
 
-        Uses self._llm at temperature=0.0 (set globally in _init_llm).
+        Uses fast llama-3.1-8b-instant at temperature=0.0 on Groq for 10x throughput
+        and to avoid daily token quota contention with 70b generation.
         Post-processes output to strip section numbers that cannot exist in the
         indexed corpus (e.g. 'BNS Section 380' — BNS has 358 sections; 380 is an
         IPC number relabeled BNS without updating the number).
         """
-        self._init_llm()
+        if self.provider == "groq":
+            from langchain_groq import ChatGroq
+            expansion_llm = ChatGroq(model="llama-3.1-8b-instant", api_key=self.api_key, temperature=0.0)
+        else:
+            self._init_llm()
+            expansion_llm = self._llm
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert Indian legal assistant. Translate the user's informal question about Indian law into a space-separated list of formal legal keywords, concepts, and Act references.
 
@@ -286,11 +338,11 @@ CRITICAL STATUTE MAPPING (effective July 1, 2024):
 NEVER output IPC, CrPC, or Indian Evidence Act references. Always use BNS, BNSS, or BSA equivalents.
 
 DOMAIN SCOPING — override BNS/BNSS/BSA default for these topics:
-- Employment, salary, wages, notice period, employer-employee disputes -> Indian Contract Act, Payment of Wages Act, Industrial Disputes Act. NEVER output BNS or BNSS for these.
-- Cheque dishonour, negotiable instrument, bounced cheque -> Negotiable Instruments Act only. NEVER output BNS or BNSS.
-- Inheritance, succession, will -> Hindu Succession Act or Indian Succession Act only.
-- Cyber fraud, phishing, hacking, online fraud -> IT Act (Information Technology Act 2000). BNS is secondary only.
-- Shop / store / warehouse / commercial break-in or theft -> BNS theft dwelling house building housebreaking lurking house-trespass property. NEVER output 'shopbreaking' or 'shop breaking' (not BNS statutory terms).
+- Employment, salary, wages, notice period, unpaid salary, employer-employee disputes -> Payment of Wages Act delayed payment of wages deduction from wages unpaid salary employer employee Indian Contract Act. NEVER output BNS or BNSS for these.
+- Cheque dishonour, negotiable instrument, bounced cheque -> Negotiable Instruments Act Section 138 dishonour of cheque. NEVER output BNS or BNSS.
+- Inheritance, succession, intestate, will -> Hindu Succession Act Section 15 intestate succession female Hindu property division legal heirs.
+- Cyber fraud, phishing, malicious link, hacking, online fraud -> IT Act Information Technology Act Section 66D cheating by personation computer resource electronic communication phishing. BNS is secondary only.
+- Shop / store / warehouse / commercial break-in or theft -> BNS Section 331 housebreaking lurking house-trespass after sunset theft property. NEVER output 'shopbreaking' or 'shop breaking'.
 
 If you are not absolutely sure about a specific Section number, output only the general Act name and keywords. Do NOT hallucinate section numbers.
 Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
@@ -299,26 +351,26 @@ Examples:
 User: "I reported a crime two months ago but the investigating officer has not given me any update on the case."
 Output: BNSS investigation inform informant victim ninety days progress report police officer electronic communication
 
-User: "A fraudster pretended to be a bank employee and convinced me to share my OTP, then transferred funds from my account."
-Output: cheating by personation IT Act computer resource impersonation bank fraud online unauthorized transfer BNS
+User: "I clicked a malicious link in a suspicious text message and lost money from my bank account."
+Output: IT Act Section 66D cheating by personation computer resource electronic communication phishing cyber fraud unauthorized transfer
 
-User: "A customer paid with a bill that bounced due to lack of balance in their account."
-Output: dishonour of cheque Negotiable Instruments Act insufficient funds notice drawer liability
+User: "A buyer paid for my goods using a cheque that bounced because there was not enough balance in their account."
+Output: Negotiable Instruments Act Section 138 dishonour of cheque insufficient funds notice drawer liability
 
-User: "An employer did not pay the agreed salary to a worker who completed the notice period and resigned."
-Output: Indian Contract Act breach of contract compensation unpaid salary Payment of Wages Act employee dues notice period
+User: "I resigned from my job with proper notice but my former boss is refusing to clear my final pending salary."
+Output: Payment of Wages Act delayed payment of wages deduction from wages unpaid salary employer employee Indian Contract Act
 
-User: "A company refused to honor our signed agreement and pay for services rendered."
-Output: breach of contract Indian Contract Act compensation damages
+User: "My mother passed away last year without making a will, leaving a self-acquired house to her children."
+Output: Hindu Succession Act Section 15 female Hindu intestate succession property division legal heirs
 
-User: "My mother passed away without a written testament, how is her house inherited?"
-Output: Hindu Succession Act intestate succession self acquired property female Hindu legal heirs
+User: "The police arrested my brother without telling him why and have not produced him before a judge in over 24 hours."
+Output: BNSS Section 47 grounds of arrest Section 58 twenty-four hours magistrate custody right to be informed
 
-User: "Someone broke into my house at night and stole electronics and cash."
-Output: BNS theft dwelling house building housebreaking lurking house-trespass property"""),
+User: "Someone broke into my shop at night and stole goods worth several lakhs."
+Output: BNS Section 331 housebreaking lurking house-trespass after sunset theft property"""),
             ("human", "{question}")
         ])
-        chain = prompt | self._llm | StrOutputParser()
+        chain = prompt | expansion_llm | StrOutputParser()
         try:
             raw_output = chain.invoke({"question": question}).strip()
             return self._strip_section_numbers(raw_output)

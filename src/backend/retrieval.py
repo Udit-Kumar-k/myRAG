@@ -18,11 +18,9 @@ CRIMINAL_KEYWORDS = [
     "investigation", "prosecution", "summons", "warrant", "remand",
     "anticipatory bail", "custody", "sentence", "death penalty",
     "life imprisonment", "hurt", "grievous hurt", "mischief",
-    "criminal conspiracy", "attempt", "abetment",
-    # Colloquial property crime vocabulary — routes break-in/theft queries to
-    # criminal namespace instead of falling to 'all'.
-    # "stole" + "broke into" = score 2, triggering criminal routing.
-    # Without this, 27k general-namespace chunks dilute BNS burglary chunks in RRF.
+    "criminal conspiracy", "attempt", "abetment", "police",
+    "police station", "police complaint",
+    # Colloquial property crime vocabulary
     "stole", "stolen", "robbed", "rob", "looted", "snatched",
     "burglary", "housebreaking", "break-in", "broke into", "breaking into",
     "shoplifting", "extortion", "trespass", "criminal trespass",
@@ -35,42 +33,39 @@ CYBER_KEYWORDS = [
     "intermediary", "digital", "electronic", "computer", "network",
     "data breach", "unauthorized access", "cyber terrorism",
     "obscene content", "defamation online", "email", "website",
-    # Colloquial attack-vector phrasings not covered above
+    # Colloquial attack-vector phrasings
     "malicious link", "otp", "otp fraud", "account hacked", "lost money online",
     "bank account hacked", "suspicious link", "suspicious message",
 ]
 
 CONSUMER_KEYWORDS = [
     "consumer", "consumer protection", "defective product", "deficiency",
-    "service", "warranty", "guarantee", "refund", "compensation",
+    "service deficiency", "warranty", "guarantee", "refund", "compensation",
     "unfair trade", "misleading advertisement", "consumer forum",
     "consumer commission", "product liability", "e-commerce",
-    "goods", "services", "consumer complaint", "consumer rights",
+    "defective goods", "consumer complaint", "consumer rights",
     "landlord", "tenant", "deposit", "rent",
 ]
 
 BANKING_KEYWORDS = [
     "rbi", "reserve bank", "banking", "bank", "loan", "interest rate",
     "npa", "non-performing asset", "upi", "neft", "rtgs", "imps",
-    # NOTE: bare "payment" removed — it matches "Payment of Wages Act",
-    # "Payment of Bonus Act", etc. and misfiled them into banking namespace.
-    # "digital payment" (below) is specific enough.
-    "cheque bounce", "bounced cheque", "cheque dishonour", "dishonour of cheque",
-    "negotiable instrument", "section 138",
+    "cheque", "cheques", "cheque bounce", "bounced cheque", "cheque dishonour",
+    "dishonour of cheque", "dishonoured", "negotiable instrument", "section 138",
     "financial fraud", "credit", "debit", "mortgage", "insurance",
     "nbfc", "microfinance", "digital payment",
 ]
+
 CIVIL_KEYWORDS = [
     # Employment and salary disputes (route to general — ICA/Payment of Wages Act)
-    # T4 diagnostic: expanded+general puts ICA at rank 2; expanded+all buries it at rank 13
-    # because BNS has far more chunks and dominates RRF merge in the all namespace.
     "salary", "wages", "employment", "employer", "employee",
     "notice period", "termination", "wrongful termination",
     "labour", "labor", "payment of wages", "provident fund",
     "resigned", "resignation", "dismissed", "dismissal",
     "contract of employment", "appointment letter",
     # Inheritance and succession (route to general — Hindu Succession Act)
-    "inheritance", "succession", "intestate", "will", "testament",
+    "inheritance", "succession", "intestate", "testament", "probate",
+    "last will", "without a will", "making a will", "leave a will", "will and testament",
     "heir", "legal heir", "property division", "estate",
     # Civil contract disputes (route to general — Indian Contract Act)
     "breach of contract", "specific performance", "injunction",
@@ -120,7 +115,7 @@ def route_query(query: str) -> str:
     }
 
     max_score = max(scores.values())
-    if max_score <= 1:
+    if max_score == 0:
         return "all"
 
     tied = [ns for ns, s in scores.items() if s == max_score]

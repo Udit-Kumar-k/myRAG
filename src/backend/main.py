@@ -208,6 +208,7 @@ class DatabaseManager:
             return history
         except Exception as e:
             print(f"Failed to read from local DB: {e}")
+            return []
     def save_feedback(self, uid: str, feedback: Dict[str, Any]):
         """Saves user feedback on an answer to Supabase or local DB."""
         if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
@@ -492,7 +493,7 @@ def get_telemetry_metrics():
 def get_conversation_history(conversation_id: str, uid: str = Depends(authenticate_user)):
     """Retrieves full conversation history for the authenticated user."""
     history = db_manager.get_history(uid, conversation_id)
-    return {"history": history}
+    return {"history": history if isinstance(history, list) else []}
 
 @app.get("/health")
 def health_check():

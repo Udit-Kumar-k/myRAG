@@ -149,16 +149,9 @@ for s in SCENARIOS:
     if not refused:
         t_gen_0 = time.time()
         try:
-            raw_ans = rag_chain.get_chain().invoke({
-                "context": "\n\n".join([f"Source [{j+1}]: {c['metadata']['document_name']}\n{c['text']}" for j, c in enumerate(chunks)]),
-                "history": [],
-                "question": query
-            })
-            cleaned_ans, unverified = rag_chain.verify_citations(raw_ans, chunks)
-            answer = cleaned_ans
+            answer = rag_chain.run(query, chunks, [])
             t_gen = time.time() - t_gen_0
             print(f"\nGeneration ({t_gen:.2f}s):")
-            print(f"  Unverified citations caught/cleaned: {unverified}")
             print(f"\n  --- GENERATED ANSWER ---")
             print(f"  {answer}")
             print(f"  --- END ANSWER ---")

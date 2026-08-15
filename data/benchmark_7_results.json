@@ -4,78 +4,76 @@
     "label": "Scenario 1 \u2014 FIR Progress Update (4 months, no update)",
     "routed_ns": "all",
     "searched_ns": "all",
-    "confidence": 0.8723103404045105,
+    "confidence": 0.9590862989425659,
     "refused": false,
     "toc_pollution": [],
     "unverified_citations": [],
-    "answer_preview": "According to the Bharatiya Nagarik Suraksha Sanhita 2023, Section 193(3)(ii), the police officer shall, within a period of ninety days, inform the pro"
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   },
   {
     "scenario": 2,
     "label": "Scenario 2 \u2014 Cheque Dishonour (commercial buyer)",
-    "routed_ns": "all",
-    "searched_ns": "all",
+    "routed_ns": "banking",
+    "searched_ns": "banking",
     "confidence": 0.9396783113479614,
     "refused": false,
     "toc_pollution": [],
     "unverified_citations": [],
-    "answer_preview": "Under the Negotiable Instruments Act, 1881, Section 138, if a cheque is returned by the bank unpaid due to insufficient funds in the account, the draw"
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   },
   {
     "scenario": 3,
     "label": "Scenario 3 \u2014 Cyber Fraud via Phishing SMS",
     "routed_ns": "all",
     "searched_ns": "all",
-    "confidence": 0.9508190751075745,
+    "confidence": 0.8836609721183777,
     "refused": false,
     "toc_pollution": [],
-    "unverified_citations": [
-      "Section 66D"
-    ],
-    "answer_preview": "I'm troubled to hear that you've fallen victim to a cybercrime. The situation you've described could be considered under the purview of cheating by pe"
+    "unverified_citations": [],
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   },
   {
     "scenario": 4,
     "label": "Scenario 4 \u2014 Withheld Final Salary",
     "routed_ns": "general",
     "searched_ns": "general",
-    "confidence": 0.6670976281166077,
+    "confidence": 0.9620090126991272,
     "refused": false,
     "toc_pollution": [],
     "unverified_citations": [],
-    "answer_preview": "According to The Payment of Wages Act, 1936, Section 20, \"Penalty for offences under the Act\", if your employer fails to pay your wages, they can be p"
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   },
   {
     "scenario": 5,
     "label": "Scenario 5 \u2014 Mother's Intestate Succession",
-    "routed_ns": "all",
-    "searched_ns": "all",
-    "confidence": 0.9826788902282715,
+    "routed_ns": "general",
+    "searched_ns": "general",
+    "confidence": 0.9568429589271545,
     "refused": false,
     "toc_pollution": [],
     "unverified_citations": [],
-    "answer_preview": "I'm sorry to hear about your loss. According to the Hindu Succession Act, 1956, Section 15, the property of a female Hindu dying intestate shall devol"
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   },
   {
     "scenario": 6,
     "label": "Scenario 6 \u2014 Arrest Without Grounds / No Magistrate Production",
-    "routed_ns": "all",
-    "searched_ns": "all",
-    "confidence": 0.9204504489898682,
+    "routed_ns": "criminal",
+    "searched_ns": "criminal",
+    "confidence": 0.8854091763496399,
     "refused": false,
     "toc_pollution": [],
     "unverified_citations": [],
-    "answer_preview": "According to the Bharatiya Nagarik Suraksha Sanhita, 2023, Section 47, every police officer or other person arresting any person without warrant shall"
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   },
   {
     "scenario": 7,
     "label": "Scenario 7 \u2014 Shop Break-in and Theft",
     "routed_ns": "criminal",
     "searched_ns": "criminal",
-    "confidence": 0.8797692060470581,
+    "confidence": 0.9605382084846497,
     "refused": false,
     "toc_pollution": [],
     "unverified_citations": [],
-    "answer_preview": "I'm sorry to hear that your shop was broken into and goods were stolen. Under the Bharatiya Nyaya Sanhita 2023, this act can be considered as house-br"
+    "answer_preview": "Error: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kpqey4jgea4b7jvnvvpdnx6f"
   }
 ]

@@ -43,6 +43,7 @@ class TestRetrievalPipeline(unittest.TestCase):
         self.assertGreater(merged_a[0]["rrf_score"], merged_b[0]["rrf_score"])
 
     def test_confidence_gate(self):
+        from unittest.mock import patch
         # We test routing and gating with mocked reranker
         mock_reranker = MagicMock()
         self.pipeline.load_reranker = MagicMock(return_value=mock_reranker)
@@ -53,18 +54,19 @@ class TestRetrievalPipeline(unittest.TestCase):
             {"text": "Section 103 of BNS prescribes punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}
         ])
         
-        # 1. Test query passes confidence gate (high rerank score)
-        mock_reranker.predict.return_value = [2.0] # raw logit, sigmoid(2.0) is approx 0.88 >= 0.65
-        res = self.pipeline.query("What is the punishment for murder under BNS?")
-        self.assertFalse(res["refused"])
-        self.assertGreaterEqual(res["confidence_score"], 0.65)
-        self.assertEqual(len(res["retrieved_chunks"]), 1)
+        with patch('src.backend.chain.LegalRAGChain.expand_query', side_effect=lambda q: q):
+            # 1. Test query passes confidence gate (high rerank score)
+            mock_reranker.predict.return_value = [2.0] # raw logit, sigmoid(2.0) is approx 0.88 >= 0.65
+            res = self.pipeline.query("What is the punishment for murder under BNS?")
+            self.assertFalse(res["refused"])
+            self.assertGreaterEqual(res["confidence_score"], 0.65)
+            self.assertEqual(len(res["retrieved_chunks"]), 1)
 
-        # 2. Test query is blocked by confidence gate (low rerank score)
-        mock_reranker.predict.return_value = [-2.0] # raw logit, sigmoid(-2.0) is approx 0.12 < 0.65
-        res = self.pipeline.query("Who is the prime minister of France?")
-        self.assertTrue(res["refused"])
-        self.assertEqual(len(res["retrieved_chunks"]), 0)
+            # 2. Test query is blocked by confidence gate (low rerank score)
+            mock_reranker.predict.return_value = [-2.0] # raw logit, sigmoid(-2.0) is approx 0.12 < 0.65
+            res = self.pipeline.query("Who is the prime minister of France?")
+            self.assertTrue(res["refused"])
+            self.assertEqual(len(res["retrieved_chunks"]), 0)
 
 if __name__ == "__main__":
     unittest.main()

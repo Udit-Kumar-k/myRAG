@@ -3,8 +3,11 @@ import { supabase } from './supabaseClient';
 import './App.css';
 
 // Backend URL: set VITE_API_BASE_URL in .env (local) or Vercel dashboard (prod).
-// Falls back to localhost:8001 so local dev works without any extra config.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+// Uses relative path if VITE_API_BASE_URL is set to "" (e.g. Dockerfile / HF Spaces),
+// falling back to localhost:8001 only when VITE_API_BASE_URL is completely undefined.
+const API_BASE_URL = typeof import.meta.env.VITE_API_BASE_URL !== 'undefined'
+  ? import.meta.env.VITE_API_BASE_URL
+  : 'http://localhost:8001';
 
 const NS_LABELS = {
   criminal: 'Criminal Law',
