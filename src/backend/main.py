@@ -334,6 +334,40 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
 # (Pipeline globals and lifespan handler moved above app initialization)
 
 # -------------------------------------------------------------
+# SESSION CHUNK CACHE (in-process, per conversation)
+# Stores last retrieved chunks per conversation so follow-up
+# clarification queries can reuse them without re-retrieval.
+# Capped at 200 entries to avoid unbounded memory growth.
+# -------------------------------------------------------------
+_MAX_CACHE = 200
+_session_chunk_cache: Dict[str, List[Dict[str, Any]]] = {}
+
+
+# --- Follow-up query detection ---
+_FOLLOWUP_PATTERNS = [
+    # Clarification / elaboration / simplification
+    r"\b(be\s+more\s+clear|more\s+clear|clarif|elaborate|explain\s+(further|more|that|again|in\s+simple|this)|simpl(y|ify)|in\s+plain|in\s+simple\s+(terms|language|words)|what\s+does\s+that\s+mean|what\s+do\s+you\s+mean)\b",
+    # Summary / recap of previous turns
+    r"\b(summar(y|ize|ise)|recap|what\s+(did|have)\s+we\s+(discuss|talk|cover|said)|everything\s+we\s+discussed|what\s+all\s+we\s+talked|list\s+everything|tell\s+me\s+everything)\b",
+    # Referential pronouns / anaphora pointing to previous answer
+    r"^\s*(what\s+about\s+(it|that|this|them|those|the\s+same)\b|what\s+is\s+its\s+\w+|what\s+are\s+its\s+\w+|and\s+the\s+\w+\s+(for|of|in|on)\s+(it|that|this|them)\b)",
+    r"\b(in\s+(this|that)\s+case|for\s+(this|that)|you\s+mentioned|you\s+said|previously\s+mentioned)\b",
+    # Short conversational responses / continuations
+    r"^\s*(ok|okay|thanks|thank\s+you|got\s+it|understood|yes|no|sure|cool|alright|fine|great)\.?\s*$",
+    r"^\s*(and\s+then\??|what\s+next\??|what\s+now\??|why\??|how\s+so\??|what\s+else\??|are\s+you\s+sure\??|tell\s+me\s+more\.?)\s*$",
+]
+import re as _re
+_FOLLOWUP_RE = [_re.compile(p, _re.IGNORECASE) for p in _FOLLOWUP_PATTERNS]
+
+def _is_followup_query(question: str, has_prior_history: bool) -> bool:
+    """Returns True if the query is a conversational follow-up that should not
+    be routed through the RAG retrieval pipeline independently."""
+    if not has_prior_history:
+        return False
+    q = question.strip()
+    return any(pat.search(q) for pat in _FOLLOWUP_RE)
+
+# -------------------------------------------------------------
 # REQUEST/RESPONSE MODELS
 # -------------------------------------------------------------
 
@@ -388,13 +422,90 @@ def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
 def _run_query_inner(req: QueryRequest, uid: str):
     start_t = time.time()
 
-    # 1. Run Retrieval Pipeline
+    # 0. Load conversation history first — needed for follow-up detection
+    history_msgs = []
+    history_records = []
+    try:
+        from langchain_core.messages import HumanMessage, AIMessage
+        history_records = db_manager.get_history(uid, req.conversation_id)
+        for rec in history_records[-10:]:
+            if rec.get("refused", False):
+                continue
+            if rec.get("role") == "user" or rec.get("question"):
+                history_msgs.append(HumanMessage(content=rec.get("content") or rec.get("question")))
+            elif rec.get("role") == "assistant" or rec.get("answer"):
+                history_msgs.append(AIMessage(content=rec.get("content") or rec.get("answer")))
+    except Exception as e:
+        print(f"WARNING: Error loading conversation history: {e}")
+
+    has_prior = len(history_msgs) > 0
+
+    # 1a. Follow-up / clarification shortcut — bypass retrieval gate
+    if _is_followup_query(req.question, has_prior):
+        cached_chunks = _session_chunk_cache.get(req.conversation_id, [])
+        print(f"[FOLLOWUP] Detected conversational follow-up. Reusing {len(cached_chunks)} cached chunks.")
+        refused = False
+        confidence = 1.0  # full confidence — LLM answers from history/cached context
+        namespace_searched = "memory"
+        retrieved_chunks = cached_chunks
+
+        raw_provider = getattr(rag_chain, "provider", "gemini")
+        raw_model = getattr(rag_chain, "model_name", "gemini-3.6-flash")
+        provider = raw_provider if isinstance(raw_provider, str) else "gemini"
+        model_name = raw_model if isinstance(raw_model, str) else "gemini-3.6-flash"
+
+        try:
+            answer = rag_chain.run(req.question, retrieved_chunks, history_msgs)
+        except Exception as e:
+            print(f"LLM chain execution error (follow-up): {e}")
+            raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
+
+        latency_ms = int((time.time() - start_t) * 1000)
+        sources = []
+        for chunk in retrieved_chunks:
+            meta = chunk["metadata"]
+            sources.append({
+                "document_name": meta["document_name"],
+                "legal_domain":  meta.get("legal_domain", "general"),
+                "pub_year":      meta["pub_year"],
+                "namespace":     meta["namespace"],
+                "source_url":    meta["source_url"],
+                "relevance_score": chunk.get("relevance_score", 0.0)
+            })
+
+        print(f"[QUERY_TELEMETRY] uid={uid[:8]}... conv={req.conversation_id[:8]}... conf={confidence:.4f} ns={namespace_searched} refused={refused} provider={provider} model={model_name} latency_ms={latency_ms}")
+
+        for record, role_key, content_val in [
+            ({"role": "user", "content": req.question, "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None}, None, None),
+            ({"role": "assistant", "content": answer, "sources": sources, "confidence_score": confidence, "refused": False, "namespace_searched": namespace_searched, "provider": provider, "model": model_name, "latency_ms": latency_ms}, None, None),
+        ]:
+            db_manager.save_message(uid, req.conversation_id, record)
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "confidence_score": confidence,
+            "refused": refused,
+            "provider": provider,
+            "model": model_name,
+            "latency_ms": latency_ms
+        }
+
+    # 1b. Normal path — full retrieval pipeline
     pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
 
     refused = pipeline_res["refused"]
     confidence = pipeline_res["confidence_score"]
     namespace_searched = pipeline_res["namespace_searched"]
     retrieved_chunks = pipeline_res["retrieved_chunks"]
+
+    # Cache chunks for future follow-up reuse
+    if not refused and retrieved_chunks:
+        if len(_session_chunk_cache) >= _MAX_CACHE:
+            # Evict oldest entry
+            oldest_key = next(iter(_session_chunk_cache))
+            del _session_chunk_cache[oldest_key]
+        _session_chunk_cache[req.conversation_id] = retrieved_chunks
 
     sources = []
     for chunk in retrieved_chunks:
@@ -416,22 +527,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
     if refused:
         answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
     else:
-        # 2. Fetch past conversation history for LangChain context window.
-        history_msgs = []
-        try:
-            from langchain_core.messages import HumanMessage, AIMessage
-            history_records = db_manager.get_history(uid, req.conversation_id)
-            for rec in history_records[-10:]:
-                if rec.get("refused", False):
-                    continue
-                if rec.get("role") == "user" or rec.get("question"):
-                    history_msgs.append(HumanMessage(content=rec.get("content") or rec.get("question")))
-                elif rec.get("role") == "assistant" or rec.get("answer"):
-                    history_msgs.append(AIMessage(content=rec.get("content") or rec.get("answer")))
-        except Exception as e:
-            print(f"WARNING: Error loading conversation history for context: {e}")
-
-        # 3. Generate Answer using LangChain
+        # 2 & 3. Generate Answer using LangChain with pre-loaded history
         try:
             answer = rag_chain.run(req.question, retrieved_chunks, history_msgs)
         except Exception as e:

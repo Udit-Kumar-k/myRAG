@@ -56,6 +56,32 @@ GROUNDING AND REFUSAL:
 - Never answer from training memory alone
 - Never hallucinate section numbers
 
+PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
+1. OTP/credential/password fraud (phishing, SIM-swap, unauthorised use of authentication features):
+   Cite BOTH Section 66C IT Act (identity theft — unauthorized use of electronic signature, password, or unique identification feature) AND Section 66D IT Act (cheating by personation). Do NOT cite only 66D when credential theft is the core act.
+
+2. Consumer Protection Act complaints — District Commission:
+   The mechanism for approaching the District Consumer Disputes Redressal Commission is Section 34 (jurisdiction) and Section 35 (manner of complaint). Section 18 pertains to the Central Authority's inquiry powers. Never cite Section 18 as the path for filing a consumer complaint at District level.
+
+3. Code on Wages, 2019 — final settlement on termination:
+   The mandatory 2-working-day payment rule for dismissed/removed/resigned employees is Section 17(4), NOT Section 17(2). Section 17(2) covers seasonal establishments. Subsection accuracy is mandatory.
+
+4. IT Act Section 66E — scope is strictly limited:
+   Section 66E applies ONLY to capturing, publishing, or transmitting images of the "private area" of a person without consent. It does NOT cover generic morphed photos, defamatory composites, or digitally altered images that do not expose private anatomical areas.
+   For morphed photos (non-private-area), abusive messages, and fake-account harassment, the correct provisions are:
+   - BNS Section 356 (defamation, if reputation is harmed by false imputation)
+   - IT Act Section 67 (publishing obscene material in electronic form, if sexually explicit)
+   - IT Act Section 67A (publishing sexually explicit acts, if applicable)
+   - IT Act Section 66D (cheating by personation via fake accounts)
+
+5. BNSS arrest provisions:
+   The 24-hour rule for production before a Magistrate is Section 58 BNSS (and Article 22 of the Constitution). Only cite Section 170 BNSS when the context chunk explicitly supports it — Section 170 concerns forwarding cases to Magistrate when evidence is sufficient, not preventive detention limits.
+
+OUTPUT COMPLETENESS:
+- Never truncate an answer mid-sentence, mid-section, or mid-word.
+- If listing punishments or remedies across multiple BNS/BNSS/BSA sections, complete every section's explanation before ending.
+- If the answer would exceed context, summarize remaining sections briefly rather than cutting off abruptly.
+
 HARD LIMITS:
 Does not cover: state-specific laws, court judgments, case law, ongoing case procedure, tax law.
 Always end serious legal situation responses with:
@@ -256,6 +282,10 @@ class LegalRAGChain:
                 replacement = f"the {clean_act}"
                 answer = answer.replace(full_phrase, replacement)
 
+        # Cleanup double-article artefact from replacement above
+        # e.g. "under the the Code on Wages" → "under the Code on Wages"
+        answer = re.sub(r'\bthe\s+the\b', 'the', answer, flags=re.IGNORECASE)
+
         # --- CHECK 2: Standalone Section Number Verification ---
         sec_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\b'
         unverified_sec_spans = []
@@ -300,6 +330,16 @@ class LegalRAGChain:
                         break
 
             if not is_grounded:
+                # Final safety valve: if verified_act_sections is empty (CHECK 1 found nothing)
+                # and the section number appears in ANY retrieved chunk text, don't redact it —
+                # the act name just wasn't in metadata, but the section IS grounded.
+                if not verified_act_sections:
+                    raw_grounded = any(
+                        cls._has_section_in_text(sec_num, chunk.get("text", ""))
+                        for chunk in context_chunks
+                    )
+                    if raw_grounded:
+                        continue
                 unverified_sec_spans.append((match.start(), match.end(), full_sec))
 
         # Redact only the unverified section spans in reverse order to preserve string offsets
@@ -319,7 +359,12 @@ class LegalRAGChain:
         if unverified_claims:
             print(f"WARNING: Citation Verification Guard detected and redacted uncited claim(s): {unverified_claims}")
 
-        answer = re.sub(r'\s+', ' ', answer).strip()
+        # Preserve newlines, paragraphs, lists, and markdown structure:
+        # Collapse consecutive horizontal spaces/tabs on the same line
+        answer = re.sub(r'[^\S\r\n]+', ' ', answer)
+        # Collapse 3+ consecutive blank lines to standard paragraph breaks
+        answer = re.sub(r'\n{3,}', '\n\n', answer)
+        answer = answer.strip()
         return answer, unverified_claims
 
     def run(self, question: str, context_chunks: List[Dict[str, Any]], history: List[Any]) -> str:
@@ -340,7 +385,9 @@ class LegalRAGChain:
             if self.provider == "gemini" and self.gemini_key:
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
-                    gemini_fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
+                    # Pin to a specific versioned model — avoid "gemini-flash-latest" alias
+                    # which silently resolves to different versions across API updates.
+                    gemini_fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash-001")
                     print(f"Attempting Gemini fallback model: {gemini_fallback_model}")
                     fb_llm = ChatGoogleGenerativeAI(model=gemini_fallback_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=2048)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
@@ -461,7 +508,8 @@ Output: BNS Section 331 housebreaking lurking house-trespass after sunset theft 
             if self.gemini_key:
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
-                    gem_exp_llm = ChatGoogleGenerativeAI(model="gemini-flash-latest", google_api_key=self.gemini_key, temperature=0.0)
+                    gem_exp_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash-001")
+                    gem_exp_llm = ChatGoogleGenerativeAI(model=gem_exp_model, google_api_key=self.gemini_key, temperature=0.0)
                     fb_chain = prompt | gem_exp_llm | StrOutputParser()
                     raw_output = fb_chain.invoke({"question": question}).strip()
                     return self._strip_section_numbers(raw_output)

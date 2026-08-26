@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { marked } from 'marked';
 import { supabase } from './supabaseClient';
 import './App.css';
+
+// Configure marked options for clean legal text formatting
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
 
 // Backend URL: set VITE_API_BASE_URL in .env (local) or Vercel dashboard (prod).
 // Uses relative path if VITE_API_BASE_URL is set to "" (e.g. Dockerfile / HF Spaces),
@@ -37,6 +44,15 @@ function App() {
   const [backendStatus, setBackendStatus] = useState('checking'); // 'online'|'offline'|'partial'|'checking'
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+
+  // ── Auth Form State ───────────────────────────────────
+  const [authMode, setAuthMode]         = useState('signin'); // 'signin' | 'signup' | 'forgot'
+  const [authEmail, setAuthEmail]       = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirm, setAuthConfirm]   = useState('');
+  const [authError, setAuthError]       = useState('');
+  const [authSuccess, setAuthSuccess]   = useState('');
+  const [authLoading, setAuthLoading]   = useState(false);
 
   // ── Modals & Feedback State ───────────────────────────
   const [showScopeModal, setShowScopeModal]   = useState(false);
@@ -157,11 +173,12 @@ function App() {
     setActiveConvId(id);
     setLoading(true);
     try {
-      const r = await fetch(`${API_BASE_URL}/history/${id}`, {
+      const r = await fetchWithTimeout(`${API_BASE_URL}/history/${id}`, {
         headers: { Authorization: `Bearer ${token || 'mock-token'}` }
-      });
+      }, 10000);
       if (r.ok) {
         const { history } = await r.json();
+        if (!Array.isArray(history)) { setMessages([]); return; }
         const msgs = [];
         history.forEach(item => {
           if (item.question || (item.role === 'user' && item.content)) {
@@ -689,8 +706,13 @@ function App() {
                         Search India Code →
                       </a>
                     </div>
+                  ) : msg.role === 'assistant' ? (
+                    <div
+                      className="msg-text formatted-markdown"
+                      dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || '') }}
+                    />
                   ) : (
-                    <div className="msg-text">{msg.content}</div>
+                    <div className="msg-text user-msg-text">{msg.content}</div>
                   )}
 
                   {/* Citations */}

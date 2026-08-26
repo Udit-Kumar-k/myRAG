@@ -60,9 +60,10 @@ body {
 /* ─── App Shell ─────────────────────────────────────── */
 .app-shell {
   display: grid;
-  grid-template-rows: 44px 1fr;
+  grid-template-rows: 44px auto 1fr;
   grid-template-columns: 240px 1fr;
   height: 100vh;
+  overflow: hidden;
 }
 
 /* ─── Topbar ─────────────────────────────────────────── */
@@ -456,7 +457,113 @@ body {
 }
 
 .msg-text {
-  white-space: pre-line;
+  font-size: 14px;
+  line-height: 1.68;
+  color: var(--text-0);
+  word-break: break-word;
+}
+
+.user-msg-text {
+  white-space: pre-wrap;
+}
+
+/* ─── Formatted Markdown (Assistant Responses) ──────── */
+.formatted-markdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.formatted-markdown h1,
+.formatted-markdown h2,
+.formatted-markdown h3,
+.formatted-markdown h4 {
+  color: var(--text-0);
+  font-weight: 600;
+  margin-top: 14px;
+  margin-bottom: 4px;
+  line-height: 1.35;
+}
+
+.formatted-markdown h1:first-child,
+.formatted-markdown h2:first-child,
+.formatted-markdown h3:first-child,
+.formatted-markdown h4:first-child {
+  margin-top: 0;
+}
+
+.formatted-markdown h1 { font-size: 17px; }
+.formatted-markdown h2 { 
+  font-size: 15px; 
+  border-bottom: 1px solid var(--border); 
+  padding-bottom: 6px; 
+  color: var(--gold-light, #ffd580);
+}
+.formatted-markdown h3 { 
+  font-size: 14.5px; 
+  color: var(--gold-light, #ffd580); 
+}
+.formatted-markdown h4 { font-size: 13.5px; }
+
+.formatted-markdown p {
+  margin: 0 0 6px 0;
+  line-height: 1.68;
+}
+
+.formatted-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.formatted-markdown ul,
+.formatted-markdown ol {
+  margin: 4px 0 8px 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formatted-markdown li {
+  line-height: 1.65;
+}
+
+.formatted-markdown li::marker {
+  color: var(--gold, #f59e0b);
+}
+
+.formatted-markdown strong {
+  color: var(--text-0);
+  font-weight: 600;
+}
+
+.formatted-markdown em {
+  color: var(--text-1);
+  font-style: italic;
+}
+
+.formatted-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.formatted-markdown blockquote {
+  border-left: 3px solid var(--gold, #f59e0b);
+  background: var(--bg-2);
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  color: var(--text-1);
+  font-style: italic;
+}
+
+.formatted-markdown code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  background: var(--bg-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
 }
 
 /* ─── Refusal ──────────────────────────────────────── */
@@ -1033,45 +1140,50 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 16px;
-  background: rgba(245, 158, 11, 0.08);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
-  font-size: 12px;
+  gap: 10px;
+  padding: 4px 16px;
+  min-height: 28px;
+  background: rgba(245, 158, 11, 0.06);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.18);
+  font-size: 11.5px;
+  line-height: 1.35;
   color: #fbbf24;
   z-index: 9;
 }
 
 .disclaimer-icon {
-  font-size: 14px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 
 .disclaimer-text {
   flex: 1;
   color: var(--text-1);
+  font-size: 11.5px;
 }
 
 .disclaimer-text strong {
   color: #fbbf24;
+  font-weight: 600;
 }
 
 .btn-scope-link {
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
   color: #fbbf24;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: var(--radius);
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
   transition: var(--trans);
 }
 
 .btn-scope-link:hover {
-  background: rgba(245, 158, 11, 0.25);
-  color: #fde68a;
+  background: rgba(245, 158, 11, 0.22);
+  color: #fef08a;
+  border-color: rgba(245, 158, 11, 0.5);
 }
 
 .btn-sidebar-scope {

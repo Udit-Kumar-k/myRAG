@@ -85,7 +85,7 @@ class TestIntegrationEndpoints(unittest.TestCase):
             "/query",
             json={
                 "question": "Who is the prime minister of France?",
-                "conversation_id": "test_conv_abc"
+                "conversation_id": "test_conv_refusal"
             },
             headers={"Authorization": "Bearer mock-token"}
         )
@@ -96,6 +96,27 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertEqual(data["confidence_score"], 0.15)
         self.assertEqual(len(data["sources"]), 0)
         self.assertIn("does not contain sufficient information", data["answer"])
+
+    @patch("src.backend.main.rag_pipeline")
+    @patch("src.backend.main.rag_chain")
+    def test_followup_query_memory(self, mock_chain, mock_pipeline):
+        # Set up a follow-up query on the existing session test_conv_abc
+        mock_chain.run.return_value = "Under BNS Section 103, murder is punishable with death or life imprisonment."
+        
+        response = client.post(
+            "/query",
+            json={
+                "question": "could you be more clear on this?",
+                "conversation_id": "test_conv_abc"
+            },
+            headers={"Authorization": "Bearer mock-token"}
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["refused"])
+        self.assertEqual(data["confidence_score"], 1.0)
+        self.assertIn("Section 103", data["answer"])
 
     def test_feedback_endpoint(self):
         response = client.post(
