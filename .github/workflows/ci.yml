@@ -28,10 +28,24 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Audit Python dependencies (OWASP A06)
+      # Surface known CVEs in the Python dep tree. continue-on-error so a
+      # finding doesn't block deploy, but remains visible in Actions output.
+      continue-on-error: true
+      run: |
+        pip install pip-audit
+        pip-audit -r requirements.txt
+
+    - name: Audit npm dependencies (OWASP A06)
+      # Only flag high-severity or above to avoid noise from low-risk advisories.
+      continue-on-error: true
+      working-directory: frontend
+      run: npm audit --audit-level=high
+
     - name: Run unit and integration tests
       run: |
         python -m pytest tests/ -v
-        
+
     - name: Run RAGAS eval gate simulation
       # Only runs when GEMINI_API_KEY or GROQ_API_KEY secret is configured in repo.
       # Skip silently in bare CI runners — no GPU, no model cache, no HuggingFace indexes.

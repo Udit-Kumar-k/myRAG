@@ -3,14 +3,18 @@ import traceback
 import json
 import time
 import uuid
+import shutil
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, Header, HTTPException, Depends
+from typing import List, Dict, Any, Optional, Tuple
+from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
@@ -72,13 +76,29 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI Web Application
 app = FastAPI(title="NyayBot API", version="2.0.0", lifespan=lifespan)
 
+# Rate limiter — keyed on remote IP address
+_query_rate_limit = os.environ.get("QUERY_RATE_LIMIT", "10/minute")
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS Setup
+# Allow credentials with explicit origin list — wildcard + credentials is a
+# security anti-pattern (echoes Origin header on every credentialed request).
+_ALLOWED_ORIGINS = [
+    o.strip() for o in
+    os.environ.get(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://localhost:8001,http://127.0.0.1:8001"
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this to specific origins
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # -------------------------------------------------------------
@@ -162,9 +182,13 @@ class DatabaseManager:
                 "timestamp": time.time(),
                 **message
             })
-            
-            with open(self.local_db_path, "w") as f:
+
+            # Atomic write: write to .tmp then rename so a mid-write crash
+            # never leaves local_db.json truncated to 0 bytes.
+            tmp_path = self.local_db_path + '.tmp'
+            with open(tmp_path, "w") as f:
                 json.dump(data, f, indent=2)
+            shutil.move(tmp_path, self.local_db_path)
         except Exception as e:
             print(f"Failed to save message to local DB: {e}")
 
@@ -237,8 +261,11 @@ class DatabaseManager:
                 "timestamp": time.time(),
                 **feedback
             })
-            with open(self.local_db_path, "w") as f:
+            # Atomic write
+            tmp_path = self.local_db_path + '.tmp'
+            with open(tmp_path, "w") as f:
                 json.dump(data, f, indent=2)
+            shutil.move(tmp_path, self.local_db_path)
         except Exception as e:
             print(f"Failed to save feedback to local DB: {e}")
 
@@ -305,30 +332,28 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
     
     if not authorization or not authorization.startswith("Bearer "):
         # MOCK_AUTH defaults to "false" — opt-in to mock mode, not opt-out.
-        # Without this, deploying without setting MOCK_AUTH=false would cause
-        # all requests to share a single hardcoded UUID with no real auth check.
         if os.environ.get("MOCK_AUTH", "false").lower() == "true":
             return mock_uuid
+        print("[AUTH_FAILURE] missing or malformed Authorization header")
         raise HTTPException(status_code=401, detail="Invalid Authorization header format. Must be 'Bearer <token>'.")
-        
+
     token = authorization.split("Bearer ")[1]
 
     # SECURITY: Do NOT check `token == "mock-token"` here unconditionally.
-    # The frontend sends the literal string "mock-token" when no Supabase session
-    # exists. An unconditional string check would let any unauthenticated request
-    # — or any crafted `Authorization: Bearer mock-token` header — bypass auth in
-    # production regardless of MOCK_AUTH. Gate this exclusively behind MOCK_AUTH.
+    # Gate this exclusively behind MOCK_AUTH.
     if os.environ.get("MOCK_AUTH", "false").lower() == "true":
         return mock_uuid
-        
+
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase authentication client not initialized.")
-        
+
     try:
         # Validate Supabase access token (JWT)
         user_res = supabase.auth.get_user(token)
         return user_res.user.id
     except Exception as e:
+        token_prefix = token[:8] if len(token) >= 8 else token
+        print(f"[AUTH_FAILURE] token_prefix={token_prefix}... error={str(e)[:120]}")
         raise HTTPException(status_code=401, detail=f"Invalid or expired Supabase token: {str(e)}")
 
 # (Pipeline globals and lifespan handler moved above app initialization)
@@ -338,9 +363,12 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
 # Stores last retrieved chunks per conversation so follow-up
 # clarification queries can reuse them without re-retrieval.
 # Capped at 200 entries to avoid unbounded memory growth.
+# TTL: 30 minutes — stale cache entries are discarded on access.
 # -------------------------------------------------------------
 _MAX_CACHE = 200
-_session_chunk_cache: Dict[str, List[Dict[str, Any]]] = {}
+_CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", 1800))  # 30 min default
+# Values: (chunks_list, timestamp_float)
+_session_chunk_cache: Dict[str, Tuple[List[Dict[str, Any]], float]] = {}
 
 
 # --- Follow-up query detection ---
@@ -372,8 +400,8 @@ def _is_followup_query(question: str, has_prior_history: bool) -> bool:
 # -------------------------------------------------------------
 
 class QueryRequest(BaseModel):
-    question: str
-    conversation_id: str
+    question: str = Field(..., min_length=1, max_length=2000, description="Legal question to answer")
+    conversation_id: str = Field(..., min_length=1, max_length=64, pattern=r'^conv_[a-z0-9]{7}$', description="Session identifier")
 
 class SourceMetadata(BaseModel):
     document_name: str
@@ -405,7 +433,8 @@ class FeedbackRequest(BaseModel):
 # -------------------------------------------------------------
 
 @app.post("/query", response_model=QueryResponse)
-def run_query(req: QueryRequest, uid: str = Depends(authenticate_user)):
+@limiter.limit(_query_rate_limit)
+def run_query(request: Request, req: QueryRequest, uid: str = Depends(authenticate_user)):
     """Runs a question through the RAG pipeline."""
     if not rag_pipeline:
         raise HTTPException(status_code=503, detail="Pipeline not initialized. Check logs.")
@@ -442,10 +471,19 @@ def _run_query_inner(req: QueryRequest, uid: str):
 
     # 1a. Follow-up / clarification shortcut — bypass retrieval gate
     if _is_followup_query(req.question, has_prior):
-        cached_chunks = _session_chunk_cache.get(req.conversation_id, [])
+        cached_entry = _session_chunk_cache.get(req.conversation_id)
+        if cached_entry:
+            cached_chunks_raw, cache_ts = cached_entry
+            cached_chunks = cached_chunks_raw if (time.time() - cache_ts) < _CACHE_TTL_SECONDS else []
+        else:
+            cached_chunks = []
         print(f"[FOLLOWUP] Detected conversational follow-up. Reusing {len(cached_chunks)} cached chunks.")
         refused = False
-        confidence = 1.0  # full confidence — LLM answers from history/cached context
+        # Use mean relevance of cached chunks rather than hardcoding 1.0
+        if cached_chunks:
+            confidence = sum(c.get('relevance_score', 0.0) for c in cached_chunks) / len(cached_chunks)
+        else:
+            confidence = 0.5  # unknown quality, not zero
         namespace_searched = "memory"
         retrieved_chunks = cached_chunks
 
@@ -499,13 +537,13 @@ def _run_query_inner(req: QueryRequest, uid: str):
     namespace_searched = pipeline_res["namespace_searched"]
     retrieved_chunks = pipeline_res["retrieved_chunks"]
 
-    # Cache chunks for future follow-up reuse
+    # Cache chunks for future follow-up reuse (with timestamp for TTL)
     if not refused and retrieved_chunks:
         if len(_session_chunk_cache) >= _MAX_CACHE:
             # Evict oldest entry
             oldest_key = next(iter(_session_chunk_cache))
             del _session_chunk_cache[oldest_key]
-        _session_chunk_cache[req.conversation_id] = retrieved_chunks
+        _session_chunk_cache[req.conversation_id] = (retrieved_chunks, time.time())
 
     sources = []
     for chunk in retrieved_chunks:
@@ -581,8 +619,10 @@ def submit_feedback(req: FeedbackRequest, uid: str = Depends(authenticate_user))
     return {"status": "success", "message": "Feedback recorded successfully."}
 
 @app.get("/telemetry")
-def get_telemetry_metrics():
-    """Returns query drift metrics, refusal rates, confidence, and namespace stats."""
+def get_telemetry_metrics(uid: str = Depends(authenticate_user)):
+    """Returns query drift metrics, refusal rates, confidence, and namespace stats.
+    Requires authentication to prevent system fingerprinting by external parties.
+    """
     return db_manager.get_telemetry()
 
 @app.get("/history/{conversation_id}")

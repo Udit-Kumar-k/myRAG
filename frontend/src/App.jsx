@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { supabase } from './supabaseClient';
 import './App.css';
 
@@ -64,12 +65,13 @@ function App() {
 
   const submitFeedback = async (msgIndex, rating, category = 'other', comment = '') => {
     const prevUserMsg = messages[msgIndex - 1];
+    if (!token) return; // no token, no feedback
     try {
       await fetchWithTimeout(`${API_BASE_URL}/feedback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token || 'mock-token'}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           conversation_id: activeConvId,
@@ -174,8 +176,9 @@ function App() {
     setLoading(true);
     try {
       const r = await fetchWithTimeout(`${API_BASE_URL}/history/${id}`, {
-        headers: { Authorization: `Bearer ${token || 'mock-token'}` }
+        headers: { Authorization: `Bearer ${token}` }
       }, 10000);
+      if (r.status === 401) { await supabase.auth.signOut(); return; }
       if (r.ok) {
         const { history } = await r.json();
         if (!Array.isArray(history)) { setMessages([]); return; }
@@ -207,6 +210,13 @@ function App() {
     e.preventDefault();
     const q = inputValue.trim();
     if (!q || loading) return;
+    // Guard: token should never be null here (user is authenticated),
+    // but if a race condition on init leaves it null, force re-auth
+    // rather than leaking a mock-token fallback to production.
+    if (!token) {
+      await supabase.auth.signOut();
+      return;
+    }
     setInputValue('');
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setLoading(true);
@@ -216,10 +226,15 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token || 'mock-token'}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ question: q, conversation_id: activeConvId }),
       }, 180000);
+      // 401 = token expired mid-session — sign out so user sees the login screen
+      if (r.status === 401) {
+        await supabase.auth.signOut();
+        return;
+      }
       if (r.ok) {
         const data = await r.json();
         setMessages(prev => [...prev, {
@@ -488,10 +503,12 @@ function App() {
             </form>
           )}
 
-          {/* Dev bypass */}
-          <div className="auth-dev-row">
-            <button className="btn-auth-dev" onClick={bypassAuth}>⚙ Local Dev Bypass</button>
-          </div>
+          {/* Dev bypass — only shown in local Vite dev server (import.meta.env.DEV) */}
+          {import.meta.env.DEV && (
+            <div className="auth-dev-row">
+              <button className="btn-auth-dev" onClick={bypassAuth}>⚙ Local Dev Bypass</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -709,7 +726,7 @@ function App() {
                   ) : msg.role === 'assistant' ? (
                     <div
                       className="msg-text formatted-markdown"
-                      dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || '') }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(msg.content || ''), { USE_PROFILES: { html: true } }) }}
                     />
                   ) : (
                     <div className="msg-text user-msg-text">{msg.content}</div>
