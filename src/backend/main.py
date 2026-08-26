@@ -469,6 +469,32 @@ def _run_query_inner(req: QueryRequest, uid: str):
 
     has_prior = len(history_msgs) > 0
 
+    # 1a-pre. Conversational shortcut — greetings, "what can you do", non-legal chit-chat.
+    # Bypass RAG entirely and respond friendly with the LLM directly.
+    if LegalRAGChain.is_conversational(req.question):
+        print(f"[CONVERSATIONAL] Detected non-legal query: '{req.question[:60]}'. Routing to conversational handler.")
+        try:
+            answer = rag_chain.handle_conversational(req.question, history_msgs)
+        except Exception:
+            answer = "Hi! I'm NyayBot — ask me anything about Indian criminal law, consumer rights, cyber fraud, workplace rights, or property disputes."
+        latency_ms = int((time.time() - start_t) * 1000)
+        # Save to history like a normal turn, but with refused=False and no sources
+        db_manager.save_message(uid, req.conversation_id, {
+            "role": "user", "content": req.question,
+            "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None
+        })
+        db_manager.save_message(uid, req.conversation_id, {
+            "role": "assistant", "content": answer,
+            "sources": [], "confidence_score": 1.0, "refused": False,
+            "namespace_searched": "conversational", "latency_ms": latency_ms
+        })
+        return {
+            "answer": answer, "sources": [], "confidence_score": 1.0,
+            "refused": False, "provider": getattr(rag_chain, "provider", "gemini"),
+            "model": getattr(rag_chain, "model_name", "gemini-3.6-flash"),
+            "latency_ms": latency_ms
+        }
+
     # 1a. Follow-up / clarification shortcut — bypass retrieval gate
     if _is_followup_query(req.question, has_prior):
         cached_entry = _session_chunk_cache.get(req.conversation_id)

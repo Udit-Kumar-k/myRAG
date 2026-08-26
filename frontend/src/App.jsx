@@ -42,9 +42,15 @@ function App() {
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading]     = useState(false);
   const [backendOk, setBackendOk]   = useState(false);
-  const [backendStatus, setBackendStatus] = useState('checking'); // 'online'|'offline'|'partial'|'checking'
+  const [backendStatus, setBackendStatus] = useState('checking');
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+  // Per-conversation draft: saves the input text when you switch tabs so it's restored
+  const draftRef   = useRef({});
+  // Abort controller for in-flight /query requests — cancelled on tab switch
+  const abortRef   = useRef(null);
+  // Sequential session counter so names are Session 1, Session 2 ...
+  const sessionCounterRef = useRef(0);
 
   // ── Auth Form State ───────────────────────────────────
   const [authMode, setAuthMode]         = useState('signin'); // 'signin' | 'signup' | 'forgot'
@@ -107,9 +113,20 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) { setUser(session.user); setToken(session.access_token); }
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      if (session) { setUser(session.user); setToken(session.access_token); }
-      else          { setUser(null); setToken(null); }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        setUser(session.user);
+        setToken(session.access_token);
+        // Only initialize a new session on a genuine sign-in event, not on
+        // TOKEN_REFRESHED (which fires every hour mid-session) — this was the
+        // root cause of glitches with Google OAuth where each token refresh
+        // was calling startNew() and wiping the current conversation.
+        if (event === 'SIGNED_IN') {
+          // handled via the user effect below
+        }
+      } else {
+        setUser(null); setToken(null);
+      }
     });
     return () => subscription?.unsubscribe();
   }, []);
@@ -159,20 +176,41 @@ function App() {
 
   // ── Sessions ────────────────────────────────────────────
   const startNew = () => {
+    sessionCounterRef.current += 1;
     const id = `conv_${Math.random().toString(36).substring(2, 9)}`;
-    setConversations(prev => [{
-      id,
-      title: `Session ${id.substring(5, 9).toUpperCase()}`,
-      ts: Date.now()
-    }, ...prev]);
+    const title = `Session ${sessionCounterRef.current}`;
+    setConversations(prev => [{ id, title, ts: Date.now() }, ...prev]);
+    // Save current draft before clearing
+    draftRef.current[activeConvId] = inputValue;
     setActiveConvId(id);
     setMessages([]);
+    setInputValue('');
     inputRef.current?.focus();
+  };
+
+  const deleteConv = (e, id) => {
+    e.stopPropagation(); // don't trigger selectConv
+    setConversations(prev => prev.filter(c => c.id !== id));
+    delete draftRef.current[id];
+    if (id === activeConvId) {
+      // Switch to the next available session, or start fresh
+      setMessages([]);
+      setActiveConvId('');
+      setInputValue('');
+    }
   };
 
   const selectConv = async (id) => {
     if (id === activeConvId) return;
+    // Block switching while a query is actively generating — avoids race conditions
+    // where the response writes to the wrong conversation's messages.
+    if (loading) return;
+    // Save the current conversation's draft before switching
+    draftRef.current[activeConvId] = inputValue;
     setActiveConvId(id);
+    setMessages([]);
+    // Restore any saved draft for the new conversation
+    setInputValue(draftRef.current[id] || '');
     setLoading(true);
     try {
       const r = await fetchWithTimeout(`${API_BASE_URL}/history/${id}`, {
@@ -217,19 +255,29 @@ function App() {
       await supabase.auth.signOut();
       return;
     }
+    // Capture the conversation ID at the time of submission.
+    // If the user somehow switches tabs mid-generation, the response
+    // will still write back to the original conversation.
+    const convIdAtSubmit = activeConvId;
     setInputValue('');
+    draftRef.current[convIdAtSubmit] = '';
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setLoading(true);
+    // Create a new AbortController for this request
+    abortRef.current = new AbortController();
     try {
       // 3-minute timeout — first query loads the embedding model (~1-2 min)
-      const r = await fetchWithTimeout(`${API_BASE_URL}/query`, {
+      const ctrl = abortRef.current;
+      const timeoutId = setTimeout(() => ctrl.abort(), 180000);
+      const r = await fetch(`${API_BASE_URL}/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ question: q, conversation_id: activeConvId }),
-      }, 180000);
+        body: JSON.stringify({ question: q, conversation_id: convIdAtSubmit }),
+        signal: ctrl.signal,
+      }).finally(() => clearTimeout(timeoutId));
       // 401 = token expired mid-session — sign out so user sees the login screen
       if (r.status === 401) {
         await supabase.auth.signOut();
@@ -254,12 +302,10 @@ function App() {
         }]);
       }
     } catch (err) {
-      const isTimeout = err.name === 'AbortError';
+      if (err.name === 'AbortError') return; // user switched tabs — silently discard
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: isTimeout
-          ? 'Request timed out. The first query loads the AI model (~1-2 minutes). Please try again — it will be faster now.'
-          : 'Network error — make sure the FastAPI server is running on port 8001.',
+        content: 'Network error — make sure the FastAPI server is running on port 8001.',
         refused: true,
         confidenceScore: 0,
       }]);
@@ -678,14 +724,26 @@ function App() {
               No sessions yet
             </div>
           ) : conversations.map(conv => (
-            <button
+            <div
               key={conv.id}
-              className={`conv-item ${conv.id === activeConvId ? 'active' : ''}`}
-              onClick={() => selectConv(conv.id)}
+              className={`conv-item-row ${conv.id === activeConvId ? 'active' : ''}`}
             >
-              <span className="conv-dot" />
-              {conv.title}
-            </button>
+              <button
+                className={`conv-item ${conv.id === activeConvId ? 'active' : ''} ${loading && conv.id !== activeConvId ? 'disabled' : ''}`}
+                onClick={() => selectConv(conv.id)}
+                title={loading && conv.id !== activeConvId ? 'Wait for current response to finish' : ''}
+              >
+                <span className="conv-dot" />
+                {conv.title}
+              </button>
+              <button
+                className="btn-conv-delete"
+                title="Delete session"
+                onClick={(e) => deleteConv(e, conv.id)}
+              >
+                ✕
+              </button>
+            </div>
           ))}
         </div>
 
@@ -716,7 +774,7 @@ function App() {
               <div className="suggestions">
                 {[
                   ['BNS',      'What does BNS say about cybercrime?'],
-                  ['CONSUMER', 'My landlord is not returning my deposit'],
+                  ['CONSUMER', 'I received a defective product and the seller is refusing a refund'],
                   ['CYBER',    'What are the penalties for hacking under the Information Technology Act?'],
                 ].map(([tag, text]) => (
                   <button

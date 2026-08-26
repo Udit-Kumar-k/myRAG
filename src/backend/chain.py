@@ -437,13 +437,57 @@ class LegalRAGChain:
         # Kept as a no-op so any external callers don't break.
         self._init_llm()
 
-    def expand_query(self, question: str) -> str:
+    def hyde_expand_query(self, question: str) -> str:
         """
-        Translates colloquial query into legal keywords for embedding retrieval.
+        HyDE — Hypothetical Document Embedding.
 
-        Uses primary model (Gemini gemini-3.6-flash by default) with automatic fallback to Groq/secondary models.
-        Post-processes output to strip section numbers that cannot exist in the
-        indexed corpus.
+        Instead of converting the query into a keyword list, we ask the LLM to write a
+        short plausible passage from an Indian statute that *would* answer the question.
+        That passage uses the same vocabulary as the indexed chunks (act names, section
+        headers, legal terms), so cosine similarity finds the right chunks directly —
+        without any manually coded domain routing rules.
+
+        Example:
+          User: "my boss is verbally abusing me and making me work overtime"
+          HyDE output:
+            "Under the Code on Wages, 2019, Section 14, no employer shall require any
+             worker to work beyond the hours prescribed without paying overtime wages at
+             twice the ordinary rate. Under BNS Section 351, whoever commits criminal
+             intimidation — including an employer who threatens an employee — shall be
+             punished with imprisonment."
+
+        The expanded text is only used as the embedding input; it is NEVER shown to the
+        user and NEVER used as the answer.
+        """
+        self._init_llm()
+
+        hyde_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are an Indian statutory law expert. A user will describe a legal situation.
+Write a SHORT passage (3-6 sentences) that reads like an excerpt from an actual Indian statute or legal commentary that would DIRECTLY answer their situation.
+
+RULES:
+- Use proper Act names: BNS 2023, BNSS 2023, BSA 2023, Consumer Protection Act 2019, IT Act 2000, Code on Wages 2019, Payment of Wages Act 1936, Transfer of Property Act, Negotiable Instruments Act, Protection of Women from Domestic Violence Act, Hindu Succession Act, POCSO Act, Prevention of Corruption Act, RERA, etc.
+- Use formal legal vocabulary (lessee, lessor, employer, employee, aggrieved person, cognisable offence, dishonour, etc.)
+- You may invent plausible-sounding section references but keep them reasonable — the passage is ONLY used for semantic retrieval, NOT shown to the user.
+- NEVER cite IPC, CrPC, or Indian Evidence Act (repealed July 2024). Use BNS, BNSS, BSA instead.
+- Do NOT explain your reasoning. Output ONLY the passage itself.
+- Keep it under 100 words."""),
+            ("human", "{question}"),
+        ])
+
+        chain = hyde_prompt | self._llm | StrOutputParser()
+        try:
+            passage = chain.invoke({"question": question}).strip()
+            print(f"[HyDE] Generated passage: {passage[:120]}...")
+            return passage
+        except Exception as e:
+            print(f"[HyDE] Generation failed ({e}). Falling back to keyword expansion.")
+            return self.hyde_fallback_expand_query(question)
+
+    def hyde_fallback_expand_query(self, question: str) -> str:
+        """
+        Keyword-list expansion fallback — used only when HyDE generation fails.
+        Contains the explicit 13-domain domain routing rules.
         """
         self._init_llm()
         expansion_llm = self._llm
@@ -457,37 +501,106 @@ CRITICAL STATUTE MAPPING (effective July 1, 2024):
 - Indian Evidence Act is REPEALED -> use BSA (Bharatiya Sakshya Adhiniyam 2023)
 NEVER output IPC, CrPC, or Indian Evidence Act references. Always use BNS, BNSS, or BSA equivalents.
 
-DOMAIN SCOPING — override BNS/BNSS/BSA default for these topics:
-- Employment, salary, wages, notice period, unpaid salary, employer-employee disputes -> Payment of Wages Act delayed payment of wages deduction from wages unpaid salary employer employee Indian Contract Act. NEVER output BNS or BNSS for these.
-- Cheque dishonour, negotiable instrument, bounced cheque -> Negotiable Instruments Act Section 138 dishonour of cheque. NEVER output BNS or BNSS.
-- Inheritance, succession, intestate, will -> Hindu Succession Act Section 15 intestate succession female Hindu property division legal heirs.
-- Cyber fraud, phishing, malicious link, hacking, online fraud -> IT Act Information Technology Act Section 66D cheating by personation computer resource electronic communication phishing. BNS is secondary only.
-- Shop / store / warehouse / commercial break-in or theft -> BNS Section 331 housebreaking lurking house-trespass after sunset theft property. NEVER output 'shopbreaking' or 'shop breaking'.
+DOMAIN SCOPING — use these mappings before defaulting to BNS/BNSS/BSA:
+
+EMPLOYMENT & WORKPLACE:
+- Salary, wages, unpaid dues, notice period, wrongful termination, final settlement -> Payment of Wages Act delayed wages deduction from wages Code on Wages employer employee termination Indian Contract Act. NEVER output BNS or BNSS.
+- Overtime, working hours, extra shifts, forced to work late -> Code on Wages overtime working hours maximum hours employer.
+- Verbal abuse boss, workplace harassment, hostile work environment, mental harassment at office -> BNS criminal intimidation workplace harassment employer employee Code on Wages.
+- Sexual harassment at workplace, inappropriate behaviour by colleague or manager -> Sexual Harassment of Women at Workplace Act POSH internal complaints committee employer duty.
+- EPF not deposited, provident fund issue, PF deducted but not credited -> Employees Provident Funds Act employer contribution deduction.
+- Apprentice, contract worker, labour contractor -> Contract Labour Regulation Abolition Act employer contractor workmen.
+
+PROPERTY & HOUSING:
+- Landlord not returning deposit, security deposit refund, advance not returned -> Transfer of Property Act lessee lessor tenancy security deposit Indian Contract Act.
+- Illegal eviction, locked out of house, landlord forcing out before lease ends -> Transfer of Property Act BNS wrongful restraint confinement lessee lessor lease agreement.
+- Builder not giving possession, real estate fraud, flat not delivered -> RERA Real Estate Regulation Development Act promoter allottee possession delay.
+- Property encroachment, boundary dispute, trespassing on land -> BNS criminal trespass Transfer of Property Act property boundary.
+- Rent dispute, rent increase, landlord refusing repairs -> Transfer of Property Act lessee rights obligations lessor maintenance.
+
+FAMILY & DOMESTIC:
+- Domestic violence, husband beating wife, physical abuse at home, emotional abuse by spouse -> Protection of Women from Domestic Violence Act domestic relationship aggrieved person protection order.
+- Dowry harassment, in-laws demanding money, dowry death -> BNS dowry death cruelty by husband relatives demand for property.
+- Maintenance, alimony, husband not paying maintenance -> BNSS maintenance wife children parents Hindu Adoption Maintenance Act.
+- Divorce, separation, marriage dissolution -> Hindu Marriage Act divorce grounds cruelty desertion.
+- Child custody, who gets child after divorce -> Guardians and Wards Act custody welfare of child.
+
+CYBER & DIGITAL:
+- OTP theft, SIM swap, phishing link, clicked fake link lost money -> IT Act identity theft cheating by personation computer resource electronic communication cyber fraud.
+- Morphed photos, fake social media profile, someone posting edited images of me -> IT Act violation of privacy BNS defamation fake profile impersonation.
+- Cyberbullying, online harassment, threatening messages online -> BNS criminal intimidation IT Act electronic communication harassment.
+- Hacking, unauthorised access, data breach, someone accessed my accounts -> IT Act unauthorised access computer resource data breach.
+- Ransomware, device locked by attacker, demanded payment to unlock -> IT Act computer contaminant virus ransomware extortion.
+
+CRIMINAL & PERSONAL SAFETY:
+- Stalking, being followed, someone watching my house, harassing calls -> BNS stalking criminal intimidation harassment.
+- Extortion, blackmail, threatened to leak photos or videos unless paid -> BNS extortion criminal intimidation wrongful restraint.
+- Bribery, government official asking for money, corruption -> Prevention of Corruption Act public servant demand gratification bribe.
+- Hit and run, car hit pedestrian and fled, road accident death -> BNS rash negligent driving death fleeing scene accident.
+- Physical assault, someone hit me, grievous hurt -> BNS assault hurt grievous hurt.
+- Cheque dishonour, bounced cheque, insufficient funds -> Negotiable Instruments Act dishonour of cheque notice drawer liability. NEVER output BNS or BNSS.
+
+EVIDENCE & PROCEDURE:
+- Recording conversation, is it legal to record someone, admissibility of recording -> BSA electronic record admissibility certificate digital evidence.
+- CCTV footage in court, using video evidence -> BSA electronic record certificate computer output admissible.
+- Police not registering FIR, complaint not being taken -> BNSS First Information Report cognisable offence duty of officer.
+- Arrested without warrant, police detention rights, not produced before magistrate -> BNSS arrest without warrant grounds of arrest twenty-four hours magistrate.
+
+CONSUMER & BANKING:
+- Defective product, wrong item delivered, online order fraud, e-commerce refund -> Consumer Protection Act deficiency in service defective goods e-commerce refund District Commission.
+- Insurance claim rejected, insurance company not paying, unfair policy terms -> Consumer Protection Act deficiency in service insurance IRDAI.
+- Loan recovery agent harassment, bank agent threatening, abusive collection calls -> RBI guidelines Consumer Protection Act deficiency in service harassment.
+- Medical negligence, wrong treatment, doctor mistake -> Consumer Protection Act deficiency in service medical negligence.
+- Shop / store / warehouse commercial break-in or theft -> BNS housebreaking lurking house-trespass after sunset theft property. NEVER output 'shopbreaking'.
+
+INHERITANCE & SUCCESSION:
+- Inheritance, succession, intestate, will, who gets property after death -> Hindu Succession Act intestate succession female Hindu property division legal heirs.
+
+RTI & GOVERNMENT:
+- Right to information, government not giving documents, public information request -> Right to Information Act public authority information disclosure CPIO.
+
+CHILD SAFETY:
+- Child abuse, minor sexually abused, abuse of children -> POCSO Protection of Children from Sexual Offences Act child victim.
 
 If you are not absolutely sure about a specific Section number, output only the general Act name and keywords. Do NOT hallucinate section numbers.
-Do NOT include any explanations or conversational filler. Output ONLY the space-separated terms.
+Do NOT include explanations or conversational filler. Output ONLY space-separated terms.
 
 Examples:
-User: "I reported a crime two months ago but the investigating officer has not given me any update on the case."
-Output: BNSS investigation inform informant victim ninety days progress report police officer electronic communication
+User: "I reported a crime two months ago but the investigating officer has not given me any update."
+Output: BNSS investigation inform informant victim progress report police officer electronic communication
 
-User: "I clicked a malicious link in a suspicious text message and lost money from my bank account."
-Output: IT Act Section 66D cheating by personation computer resource electronic communication phishing cyber fraud unauthorized transfer
+User: "I clicked a malicious link and lost money from my bank account."
+Output: IT Act identity theft cheating by personation computer resource phishing cyber fraud unauthorized transfer
 
-User: "A buyer paid for my goods using a cheque that bounced because there was not enough balance in their account."
-Output: Negotiable Instruments Act Section 138 dishonour of cheque insufficient funds notice drawer liability
+User: "A buyer paid using a cheque that bounced."
+Output: Negotiable Instruments Act dishonour of cheque insufficient funds notice drawer liability
 
-User: "I resigned from my job with proper notice but my former boss is refusing to clear my final pending salary."
-Output: Payment of Wages Act delayed payment of wages deduction from wages unpaid salary employer employee Indian Contract Act
+User: "My boss refused to pay my last two months salary after I resigned."
+Output: Payment of Wages Act delayed wages deduction from wages Code on Wages employer employee Indian Contract Act
 
-User: "My mother passed away last year without making a will, leaving a self-acquired house to her children."
-Output: Hindu Succession Act Section 15 female Hindu intestate succession property division legal heirs
+User: "My landlord is not returning my security deposit even though I vacated on time."
+Output: Transfer of Property Act lessee lessor tenancy security deposit Indian Contract Act
 
-User: "The police arrested my brother without telling him why and have not produced him before a judge in over 24 hours."
-Output: BNSS Section 47 grounds of arrest Section 58 twenty-four hours magistrate custody right to be informed
+User: "My boss is verbally abusing me and making me work overtime without pay."
+Output: BNS criminal intimidation workplace harassment Code on Wages overtime working hours employer employee
+
+User: "My husband beats me and my in-laws are also harassing me."
+Output: Protection of Women from Domestic Violence Act domestic relationship aggrieved person protection order BNS cruelty
+
+User: "Someone posted morphed photos of me on Instagram from a fake account."
+Output: IT Act violation of privacy BNS defamation fake profile impersonation electronic publication
+
+User: "A government official asked me for money to process my application."
+Output: Prevention of Corruption Act public servant demand gratification bribe
+
+User: "My mother passed away without a will, leaving a house to her children."
+Output: Hindu Succession Act female Hindu intestate succession property division legal heirs
+
+User: "The police arrested my brother without telling him why."
+Output: BNSS arrest without warrant grounds of arrest twenty-four hours magistrate custody right to be informed
 
 User: "Someone broke into my shop at night and stole goods worth several lakhs."
-Output: BNS Section 331 housebreaking lurking house-trespass after sunset theft property"""),
+Output: BNS housebreaking lurking house-trespass after sunset theft property"""),
             ("human", "{question}")
         ])
         chain = prompt | expansion_llm | StrOutputParser()
@@ -518,6 +631,93 @@ Output: BNS Section 331 housebreaking lurking house-trespass after sunset theft 
 
             print("All query expansions failed. Falling back to original query.")
             return question
+
+    def expand_query(self, question: str) -> str:
+        """
+        Public entry point for query expansion — called by retrieval.py.
+
+        Routes to HyDE (Hypothetical Document Embedding) by default.
+        HyDE generates a short plausible statute passage, which when embedded
+        sits far closer in vector space to real matching chunks than a flat
+        keyword list — no manual domain routing rules required.
+
+        Falls back automatically to keyword-list expansion if HyDE fails.
+        """
+        return self.hyde_expand_query(question)
+
+    def handle_conversational(self, question: str, history: List[Any]) -> str:
+        """
+        Handles greetings and non-legal conversational queries directly with the LLM,
+        bypassing the RAG pipeline entirely.
+
+        Used when is_conversational() returns True. Responds as NyayBot in a friendly,
+        helpful way, nudging the user toward legal topics but never refusing.
+        """
+        self._init_llm()
+        conv_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are NyayBot, an Indian legal awareness assistant. You are warm, approachable, and helpful.
+
+When a user sends a greeting, casual message, or asks about what you can do:
+- Respond naturally and briefly (1-3 sentences max)
+- Mention your purpose: answering legal questions grounded in Indian statutory law
+- Suggest what kind of questions you can help with (criminal law, consumer rights, cyber law, workplace rights, property disputes, etc.)
+- Do NOT refuse or say "insufficient information" for casual messages. Do NOT say "consult a lawyer" for greetings.
+
+You can help with:
+- Rights when arrested (BNS, BNSS)
+- Cyber fraud, OTP theft, phishing (IT Act)
+- Consumer complaints, defective products (Consumer Protection Act)
+- Workplace abuse, overtime pay (Code on Wages, BNS)
+- Cheque bounce (Negotiable Instruments Act)
+- Domestic violence, dowry harassment (PWDVA, BNS)
+- Property, tenancy, deposit disputes"""),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{question}"),
+        ])
+        chain = conv_prompt | self._llm | StrOutputParser()
+        try:
+            return chain.invoke({"question": question, "history": history})
+        except Exception:
+            return "Hi! I'm NyayBot — I can answer legal questions grounded in Indian statutory law. Ask me about criminal law, consumer rights, cyber fraud, workplace issues, or property disputes."
+
+    @staticmethod
+    def is_conversational(question: str) -> bool:
+        """
+        Fast zero-cost heuristic to detect greetings and non-legal conversational queries.
+        Returns True if the query should bypass RAG and go to handle_conversational().
+
+        Keeps the RAG pipeline reserved for substantive legal queries only.
+        """
+        import re
+        q = question.strip().lower()
+        # Very short messages (<=3 words) without a question mark
+        if len(q.split()) <= 3 and '?' not in q:
+            greetings = {
+                'hi', 'hello', 'hey', 'hiya', 'howdy', 'namaste', 'namaskar',
+                'good morning', 'good evening', 'good afternoon', 'good night',
+                'thanks', 'thank you', 'ok', 'okay', 'sure', 'great', 'nice',
+                'bye', 'goodbye', 'see you', 'later', 'noted', 'understood',
+                'got it', 'makes sense', 'cool', 'wow', 'alright',
+            }
+            if q in greetings or any(q.startswith(g) for g in greetings):
+                return True
+            words = set(re.findall(r'\b\w+\b', q))
+            if words.issubset({
+                'hi', 'hello', 'hey', 'thanks', 'ok', 'okay', 'bye', 'great',
+                'cool', 'nice', 'sure', 'noted', 'understood', 'namaste',
+                'good', 'morning', 'evening', 'afternoon', 'night',
+            }):
+                return True
+        # What-can-you-do type queries
+        if re.search(
+            r'\b(what can you (do|help|answer)|what (do|can) you know|'
+            r'what (topics|areas|questions)|how (do|can) (i use|you work)|'
+            r'tell me about yourself|who are you|are you (a )?bot|'
+            r'what are you|what is nyaybot|how does this work)\b',
+            q
+        ):
+            return True
+        return False
 
     @staticmethod
     def _strip_section_numbers(text: str) -> str:

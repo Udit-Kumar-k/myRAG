@@ -229,11 +229,23 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* Wrapper row for each session item (holds title button + delete button) */
+.conv-item-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.conv-item-row:hover .btn-conv-delete,
+.conv-item-row.active .btn-conv-delete {
+  opacity: 1;
+}
+
 .conv-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 6px 8px 6px 12px;
   background: transparent;
   border: none;
   color: var(--text-1);
@@ -245,7 +257,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border-radius: 0;
 }
 
@@ -260,6 +273,11 @@ body {
   border-right: 2px solid var(--blue);
 }
 
+.conv-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .conv-item .conv-dot {
   width: 5px;
   height: 5px;
@@ -270,6 +288,33 @@ body {
 
 .conv-item.active .conv-dot {
   background: var(--blue);
+}
+
+/* Delete button — hidden by default, reveals on row hover */
+.btn-conv-delete {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: var(--trans);
+  line-height: 1;
+}
+
+.btn-conv-delete:hover {
+  background: rgba(220, 60, 60, 0.18);
+  color: #e05555;
+  opacity: 1;
 }
 
 .sidebar-info {
