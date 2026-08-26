@@ -145,6 +145,16 @@ npm install
 npm run dev
 ```
 
+### Database Setup (Supabase)
+
+For production persistence and authentication:
+1. Create a Supabase project at [supabase.com](https://supabase.com).
+2. Go to the **SQL Editor** and run the schema file located in [supabase/schema.sql](supabase/schema.sql). This creates the `conversations`, `messages`, and `feedback` tables with Row Level Security (RLS) policies.
+3. Configure your Supabase credentials in your server environment (or HF Spaces Secrets):
+   - `SUPABASE_URL`: Your Supabase project URL (`https://<project-ref>.supabase.co`)
+   - `SUPABASE_SERVICE_KEY`: Your service role secret key
+4. The frontend connects using the public anon key committed in [frontend/.env.production](frontend/.env.production).
+
 ### Run Tests
 
 ```bash
@@ -153,6 +163,7 @@ python -m pytest tests/ -v
 
 ## Known Limitations
 
+- **Local Storage:** In local mock mode (`MOCK_AUTH=true`), conversation history is written unencrypted to `data/local_db.json`. In production, Supabase PostgreSQL with Row Level Security (RLS) is used.
 - **State-specific laws** are not indexed — only central acts
 - **Court judgments and case law** are not included — statutory text only
 - **Pre-July 2024 corpus** for non-criminal acts (IT Act, Consumer Protection Act etc.) may not reflect latest amendments

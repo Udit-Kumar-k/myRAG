@@ -5,7 +5,7 @@ import time
 import uuid
 import shutil
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Literal
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -424,8 +424,8 @@ class FeedbackRequest(BaseModel):
     conversation_id: str
     message_id: Optional[str] = None
     query: Optional[str] = None
-    rating: str  # 'thumbs_up', 'thumbs_down', 'flag'
-    category: Optional[str] = "other"  # 'wrong_section', 'outdated_law', 'hallucination', 'incorrect_advice', 'other'
+    rating: Literal['thumbs_up', 'thumbs_down', 'flag']
+    category: Optional[Literal['wrong_section', 'outdated_law', 'hallucination', 'incorrect_advice', 'other']] = "other"
     comment: Optional[str] = ""
 
 # -------------------------------------------------------------
@@ -633,18 +633,20 @@ def get_conversation_history(conversation_id: str, uid: str = Depends(authentica
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint."""
+    """Public health check — used by HF Spaces to determine liveness.
+    Only exposes fields the UI needs (index status, namespace gaps).
+    Sensitive internals (model name, provider, supabase state) are stripped
+    to prevent system fingerprinting by unauthenticated callers.
+    """
     loaded_ns = list(index_manager.faiss_indexes.keys())
     indexes_ready = len(loaded_ns) > 0
+    missing_ns = [ns for ns in index_manager.namespaces if ns not in index_manager.faiss_indexes]
+    status = "healthy" if indexes_ready else ("partial" if missing_ns else "uninitialized")
     return {
-        "status": "healthy" if indexes_ready else "uninitialized",
+        "status": status,
         "indexes_loaded": indexes_ready,
         "loaded_namespaces": loaded_ns,
-        "missing_namespaces": [ns for ns in index_manager.namespaces if ns not in index_manager.faiss_indexes],
-        "embedding_model_loaded": index_manager.model is not None,
-        "supabase_connected": supabase is not None,
-        "active_provider": getattr(rag_chain, "provider", "gemini"),
-        "active_model": getattr(rag_chain, "model_name", "gemini-3.6-flash"),
+        "missing_namespaces": missing_ns,
         "timestamp": time.time()
     }
 

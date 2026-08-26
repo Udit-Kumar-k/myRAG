@@ -331,9 +331,28 @@ function App() {
     finally { setAuthLoading(false); }
   };
 
-  const bypassAuth = () => {
-    setUser({ id: '00000000-0000-0000-0000-000000000000', email: 'dev@nyaybot.local', user_metadata: { full_name: 'Dev User' } });
-    setToken('mock-token');
+  const enterWithoutLogin = async () => {
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      // 1. Try Supabase Anonymous sign-in (creates real guest session with valid JWT)
+      const { data, error } = await supabase.auth.signInAnonymously();
+      if (!error && data?.session) {
+        setUser(data.session.user);
+        setToken(data.session.access_token);
+        return;
+      }
+    } catch (e) {
+      console.warn('Anonymous sign-in not available, using guest profile:', e);
+    }
+    // 2. Fallback guest profile
+    setUser({
+      id: '00000000-0000-0000-0000-000000000000',
+      email: 'guest@nyaybot.local',
+      user_metadata: { full_name: 'Guest User' }
+    });
+    setToken('guest-token');
+    setAuthLoading(false);
   };
 
   const switchAuthMode = (mode) => {
@@ -342,7 +361,7 @@ function App() {
   };
 
   const signOut = async () => {
-    if (token === 'mock-token') { setUser(null); setToken(null); }
+    if (token === 'mock-token' || token === 'guest-token') { setUser(null); setToken(null); }
     else { await supabase.auth.signOut(); }
     setConversations([]); setActiveConvId(''); setMessages([]);
   };
@@ -503,12 +522,17 @@ function App() {
             </form>
           )}
 
-          {/* Dev bypass — only shown in local Vite dev server (import.meta.env.DEV) */}
-          {import.meta.env.DEV && (
-            <div className="auth-dev-row">
-              <button className="btn-auth-dev" onClick={bypassAuth}>⚙ Local Dev Bypass</button>
-            </div>
-          )}
+          {/* Enter without login / Guest access */}
+          <div className="auth-dev-row">
+            <button
+              type="button"
+              className="btn-auth-dev"
+              onClick={enterWithoutLogin}
+              disabled={authLoading}
+            >
+              Continue without signing in →
+            </button>
+          </div>
         </div>
       </div>
     );
