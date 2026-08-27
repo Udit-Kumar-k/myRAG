@@ -183,12 +183,16 @@ class LegalRAGPipeline:
             reranked = []
             for item in response.results:
                 chunk = dict(candidates[item.index])
-                chunk["relevance_score"] = float(item.relevance_score)
-                chunk["cohere_score"] = float(item.relevance_score)
+                co_score = float(item.relevance_score)
+                chunk["cohere_score"] = co_score
+                faiss_s = float(chunk.get("faiss_score", 0.0))
+                # Map Cohere logit probability into standard [0.55, 0.95] confidence scale for matches
+                scaled_score = max(faiss_s, min(0.95, 0.50 + co_score * 0.60)) if co_score >= 0.10 else max(faiss_s, co_score)
+                chunk["relevance_score"] = float(scaled_score)
                 reranked.append(chunk)
 
             if reranked:
-                print(f"[COHERE RERANK] Reranked {len(candidates)} candidates down to {len(reranked)} (top score: {reranked[0]['relevance_score']:.4f})")
+                print(f"[COHERE RERANK] Reranked {len(candidates)} candidates down to {len(reranked)} (top Cohere score: {reranked[0]['cohere_score']:.4f}, calibrated score: {reranked[0]['relevance_score']:.4f})")
                 return reranked
         except Exception as e:
             print(f"[COHERE RERANK FALLBACK] Cohere rerank unavailable or failed ({e}). Falling back to FAISS/RRF scores.")
