@@ -190,13 +190,20 @@ function App() {
 
   const deleteConv = (e, id) => {
     e.stopPropagation(); // don't trigger selectConv
-    setConversations(prev => prev.filter(c => c.id !== id));
+    if (conversations.length <= 1) return; // Prevent deleting the last remaining session
+    const remaining = conversations.filter(c => c.id !== id);
+    setConversations(remaining);
     delete draftRef.current[id];
     if (id === activeConvId) {
-      // Switch to the next available session, or start fresh
-      setMessages([]);
-      setActiveConvId('');
-      setInputValue('');
+      // Switch to the first remaining session
+      const nextConv = remaining[0];
+      if (nextConv) {
+        selectConv(nextConv.id);
+      } else {
+        setMessages([]);
+        setActiveConvId('');
+        setInputValue('');
+      }
     }
   };
 
@@ -736,13 +743,15 @@ function App() {
                 <span className="conv-dot" />
                 {conv.title}
               </button>
-              <button
-                className="btn-conv-delete"
-                title="Delete session"
-                onClick={(e) => deleteConv(e, conv.id)}
-              >
-                ✕
-              </button>
+              {conversations.length > 1 && (
+                <button
+                  className="btn-conv-delete"
+                  title="Delete session"
+                  onClick={(e) => deleteConv(e, conv.id)}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -844,8 +853,8 @@ function App() {
                     </div>
                   )}
 
-                  {/* Confidence */}
-                  {msg.role === 'assistant' && msg.confidenceScore != null && (
+                  {/* Confidence — only show when answer is grounded in retrieved legal sources */}
+                  {msg.role === 'assistant' && msg.confidenceScore != null && msg.sources && msg.sources.length > 0 && (
                     <div className="confidence-block">
                       <span className="confidence-label">Grounding confidence</span>
                       <div className="confidence-track">

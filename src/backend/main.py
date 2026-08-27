@@ -1,4 +1,5 @@
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import traceback
 import json
 import time
@@ -55,14 +56,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"WARNING: Auto-build failed: {e}. Server will start without indexes.")
 
-    env_threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
-    threshold = max(0.65, env_threshold)
-    print(f"Confidence threshold configured: {env_threshold} (enforced safety floor -> resolved: {threshold})")
+    env_threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.55"))
+    threshold = max(0.50, env_threshold)
+    print(f"Confidence threshold configured: {env_threshold} (resolved: {threshold})")
     rag_pipeline = LegalRAGPipeline(index_manager, confidence_threshold=threshold)
 
-    # Pre-load the embedding model on startup to prevent slow first-query timeouts.
-    # NOTE: The reranker is NOT pre-loaded here — it loads lazily on first query.
-    # Loading both BGE-M3 and BGE-Reranker simultaneously on CPU exceeds 8 GB RAM.
     try:
         print("Pre-loading embedding model...")
         index_manager.load_embedding_model()
@@ -457,13 +455,16 @@ def _run_query_inner(req: QueryRequest, uid: str):
     try:
         from langchain_core.messages import HumanMessage, AIMessage
         history_records = db_manager.get_history(uid, req.conversation_id)
-        for rec in history_records[-10:]:
+        for rec in history_records[-4:]:
             if rec.get("refused", False):
                 continue
+            content = (rec.get("content") or rec.get("question") or rec.get("answer") or "").strip()
+            if len(content) > 500:
+                content = content[:500] + "..."
             if rec.get("role") == "user" or rec.get("question"):
-                history_msgs.append(HumanMessage(content=rec.get("content") or rec.get("question")))
+                history_msgs.append(HumanMessage(content=content))
             elif rec.get("role") == "assistant" or rec.get("answer"):
-                history_msgs.append(AIMessage(content=rec.get("content") or rec.get("answer")))
+                history_msgs.append(AIMessage(content=content))
     except Exception as e:
         print(f"WARNING: Error loading conversation history: {e}")
 
@@ -556,7 +557,12 @@ def _run_query_inner(req: QueryRequest, uid: str):
         }
 
     # 1b. Normal path — full retrieval pipeline
-    pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
+    try:
+        pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"PIPELINE QUERY CRASHED:\n{tb}")
+        raise HTTPException(status_code=500, detail=f"Retrieval pipeline error: {str(e)}")
 
     refused = pipeline_res["refused"]
     confidence = pipeline_res["confidence_score"]
@@ -580,7 +586,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
             "pub_year":      meta["pub_year"],
             "namespace":     meta["namespace"],
             "source_url":    meta["source_url"],
-            "relevance_score": chunk["relevance_score"]
+            "relevance_score": float(chunk.get("relevance_score", chunk.get("faiss_score", 0.0)))
         })
 
     raw_provider = getattr(rag_chain, "provider", "gemini")

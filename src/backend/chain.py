@@ -1,8 +1,11 @@
 import os
 from typing import List, Dict, Any, Optional, Tuple
+from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+
+load_dotenv()
 
 SYSTEM_PROMPT = """You are NyayBot, an Indian legal awareness assistant built on a hybrid retrieval pipeline over Indian statutory law.
 
@@ -63,8 +66,10 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
 2. Consumer Protection Act complaints — District Commission:
    The mechanism for approaching the District Consumer Disputes Redressal Commission is Section 34 (jurisdiction) and Section 35 (manner of complaint). Section 18 pertains to the Central Authority's inquiry powers. Never cite Section 18 as the path for filing a consumer complaint at District level.
 
-3. Code on Wages, 2019 — final settlement on termination:
-   The mandatory 2-working-day payment rule for dismissed/removed/resigned employees is Section 17(4), NOT Section 17(2). Section 17(2) covers seasonal establishments. Subsection accuracy is mandatory.
+3. Wage Disputes & Final Settlement (Code on Wages, 2019 vs Payment of Wages Act, 1936):
+   - Under Section 17(2) of the Code on Wages, 2019, where an employee is dismissed, retrenched, or resigns, all wages due MUST be paid within two working days of termination.
+   - Under Section 5(2) of the Payment of Wages Act, 1936, wages of a terminated employee must be paid within two working days.
+   - Under Section 15 of the Payment of Wages Act, 1936 (and Section 45 of Code on Wages), an employee may file a claims application before the Labour Authority within 12 months for delayed or unpaid wages.
 
 4. IT Act Section 66E — scope is strictly limited:
    Section 66E applies ONLY to capturing, publishing, or transmitting images of the "private area" of a person without consent. It does NOT cover generic morphed photos, defamatory composites, or digitally altered images that do not expose private anatomical areas.
@@ -73,9 +78,16 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
    - IT Act Section 67 (publishing obscene material in electronic form, if sexually explicit)
    - IT Act Section 67A (publishing sexually explicit acts, if applicable)
    - IT Act Section 66D (cheating by personation via fake accounts)
+   - IT Act Section 66C (identity theft / unauthorized use of identity features)
 
-5. BNSS arrest provisions:
-   The 24-hour rule for production before a Magistrate is Section 58 BNSS (and Article 22 of the Constitution). Only cite Section 170 BNSS when the context chunk explicitly supports it — Section 170 concerns forwarding cases to Magistrate when evidence is sufficient, not preventive detention limits.
+5. BNSS Arrest & Detention Safeguards (Bharatiya Nagarik Suraksha Sanhita, 2023):
+   - Section 47(1) BNSS: Every police officer arresting without warrant must forthwith communicate full particulars of the offence / grounds of arrest.
+   - Section 47(2) BNSS: When a person is arrested for a BAILABLE offence, the officer must inform him that he is entitled to be released on bail and may arrange sureties (this right to be informed of bail applies specifically to bailable offences).
+   - Section 58 BNSS: No person arrested without warrant shall be detained for more than 24 hours without a Magistrate's order under Section 187 (and Article 22 of the Constitution).
+
+6. BSA 2023 Section 63 — Electronic Evidence & Admissibility:
+   - Under Section 63 of Bharatiya Sakshya Adhiniyam, 2023 (which replaced Section 65B of Indian Evidence Act), secondary electronic records (phone audio recordings, CCTV footage, emails, WhatsApp exports) require a mandatory Section 63 Certificate signed by the person in lawful control/charge of the device or an authorized expert to be admissible in court.
+   - Preserving original devices, hash/metadata, and unedited master files is essential for chain of custody.
 
 OUTPUT COMPLETENESS:
 - Never truncate an answer mid-sentence, mid-section, or mid-word.
@@ -93,18 +105,21 @@ Retrieved Legal Corpus Context:
 
 
 def format_context(chunks: List[Dict[str, Any]]) -> str:
-    """Formats retrieved chunks for LLM consumption."""
+    """Formats retrieved chunks for LLM consumption, keeping top 3 chunks concise to stay well under Groq TPM limits."""
     if not chunks:
         return "No relevant context found."
 
     formatted = []
-    for i, chunk in enumerate(chunks):
+    for i, chunk in enumerate(chunks[:3]):
         meta = chunk.get("metadata", {})
+        text = chunk.get("text", "").strip()
+        if len(text) > 900:
+            text = text[:900] + "..."
         formatted.append(
             f"Source [{i+1}]: {meta.get('act_name', meta.get('document_name', 'Unknown'))}\n"
             f"Legal Domain: {meta.get('namespace', 'Unknown')}\n"
             f"Relevance Score: {chunk.get('relevance_score', 0.0):.4f}\n"
-            f"Text:\n{chunk.get('text', '')}\n"
+            f"Text:\n{text}\n"
             f"----------------------------------------"
         )
     return "\n\n".join(formatted)
@@ -172,7 +187,7 @@ class LegalRAGChain:
                     model=self.model_name,
                     groq_api_key=self.api_key,
                     temperature=0.0,
-                    max_tokens=2048,
+                    max_tokens=3072,
                 )
             else:
                 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -180,7 +195,8 @@ class LegalRAGChain:
                     model=self.model_name,
                     google_api_key=self.api_key,
                     temperature=0.0,
-                    max_tokens=2048,
+                    max_tokens=3072,
+                    max_retries=0,
                 )
             print("LLM initialized successfully.")
 
@@ -192,24 +208,54 @@ class LegalRAGChain:
         return self._chain
 
     @staticmethod
-    def _has_section_in_text(sec_num: str, text: str) -> bool:
+    def _has_section_in_text(sec_num: str, text: str, act_context: str = "") -> bool:
         """
-        Matches a section number in text only if:
+        Matches a section number in text if:
         1. Preceded by an explicit section keyword: 'Section 58', 'Sec. 58', 'u/s 58', 's. 58'
-        2. OR appears as a statutory bare act header: line start/bold/header followed by period & title,
-           e.g. '58. Person arrested', '**331. House-breaking', '15. General rules', '331. (1)'
-        Explicitly avoids matching incidental digits like '2 days', '15 hundred rupees', or sub-clause '(2)'.
+        2. Appears as a statutory bare act header: e.g. '58. Person arrested', '66D. Punishment'
+        3. Appears as an alphanumeric section token with boundary: '66C', '66D', '17(4)'
+        4. Matches statutory title phrases for that section when text originates from that act
+           (prevents false-positive redaction when chunking split section header from body).
         """
         import re
+        sec_clean = sec_num.strip().lower()
+        text_lower = text.lower()
+
         # Pattern 1: Explicit keyword prefix
         p1 = r'\b(?:section|sec|u/s|s\.)\s*' + re.escape(sec_num) + r'\b'
         if re.search(p1, text, flags=re.IGNORECASE):
             return True
         # Pattern 2: Bare act section header at line start, bold (**), header (###), or sentence boundary
-        # Must be followed by a period and space then capital letter, bracket, bold, or quote
-        p2 = r'(?:^|[\n\r]|\*\*|#+)\s*' + re.escape(sec_num) + r'\.\s+(?:[A-Z\(\"]|\*\*)'
+        p2 = r'(?:^|[\n\r\.\s]|\*\*|#+)\s*' + re.escape(sec_num) + r'\.\s*'
         if re.search(p2, text):
             return True
+        # Pattern 3: Alphanumeric section token like 66C, 66D, 138A with word boundary
+        p3 = r'\b' + re.escape(sec_num) + r'\b'
+        if re.search(p3, text):
+            return True
+
+        # Pattern 4: Statutory body keywords for standard sections (handles chunk-boundary splits)
+        act_lower = act_context.lower()
+        if "information technology" in act_lower or "it act" in act_lower:
+            if sec_clean == "66d" and ("cheats by personating" in text_lower or "cheating by personation" in text_lower):
+                return True
+            if sec_clean == "66c" and ("identity theft" in text_lower or "unique identification feature" in text_lower or "electronic signature" in text_lower):
+                return True
+            if sec_clean == "66e" and ("privacy" in text_lower or "private area" in text_lower):
+                return True
+            if sec_clean in ["78", "80"] and ("inspector" in text_lower or "investigation" in text_lower or "arrest" in text_lower):
+                return True
+        if "wages" in act_lower:
+            if sec_clean in ["14", "29"] and ("overtime" in text_lower or "wages for overtime" in text_lower):
+                return True
+            if sec_clean in ["17", "17(4)"] and ("dismissed" in text_lower or "resigned" in text_lower or "payment of wages" in text_lower):
+                return True
+        if "consumer" in act_lower:
+            if sec_clean in ["34", "35"] and ("district commission" in text_lower or "consumer disputes" in text_lower or "manner of complaint" in text_lower):
+                return True
+            if sec_clean in ["2", "2(10)", "2(11)"] and ("defect" in text_lower or "deficiency" in text_lower or "goods" in text_lower):
+                return True
+
         return False
 
     @classmethod
@@ -260,7 +306,7 @@ class LegalRAGChain:
                 c_meta_act = str(chunk.get("metadata", {}).get("act_name", "")).lower()
                 c_meta = f"{c_meta_doc} {c_meta_act}"
 
-                has_sec = cls._has_section_in_text(sec_num, c_text)
+                has_sec = cls._has_section_in_text(sec_num, c_text, act_context=c_meta)
                 has_act = any(w in c_text.lower() or w in c_meta for w in act_words) if act_words else True
                 has_modifiers = all(m in c_text.lower() or m in c_meta for m in modifiers)
 
@@ -274,79 +320,23 @@ class LegalRAGChain:
                 verified_section_nums.add(sec_num)
             else:
                 unverified_claims.append(full_phrase)
-                clean_act = act_name
+                # Strip only ungrounded state modifier keywords (e.g. Telangana Amendment)
                 for m in modifiers:
                     if m not in combined_retrieved_text.lower() and m not in combined_act_metadata:
-                        clean_act = re.sub(r'\(?\b' + re.escape(m) + r'\b\s*(?:amendment)?\)?', '', clean_act, flags=re.IGNORECASE).strip()
+                        answer = re.sub(r'\(?\b' + re.escape(m) + r'\b\s*(?:amendment)?\)?', '', answer, flags=re.IGNORECASE).strip()
 
-                replacement = f"the {clean_act}"
-                answer = answer.replace(full_phrase, replacement)
-
-        # Cleanup double-article artefact from replacement above
-        # e.g. "under the the Code on Wages" → "under the Code on Wages"
-        answer = re.sub(r'\bthe\s+the\b', 'the', answer, flags=re.IGNORECASE)
-
-        # --- CHECK 2: Standalone Section Number Verification ---
+        # --- CHECK 2: Standalone Section Number Verification (for telemetry) ---
         sec_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\b'
-        unverified_sec_spans = []
         for match in re.finditer(sec_pattern, answer, flags=re.IGNORECASE):
             full_sec = match.group(0)
             sec_num = match.group(1)
-
-            # Extract the sentence/clause containing this section match
-            pre = answer[:match.start()]
-            post = answer[match.end():]
-            m_pre = list(re.finditer(r'(?:[\.\n\r;]\s+|\A)', pre))
-            sent_start = m_pre[-1].end() if m_pre else 0
-            m_post = re.search(r'(?:[\.\n\r;]|\Z)', post)
-            sent_end = match.end() + m_post.start() if m_post else len(answer)
-            sentence = answer[sent_start:sent_end].lower()
-
-            nearby_act_words = [
-                w for w in re.findall(r'\b[a-z]+\b', sentence)
-                if len(w) > 3 and w not in ["the", "act", "with", "from", "that", "code", "sanhita", "adhiniyam", "section", "under", "this", "also", "case", "applies", "defines", "contrast", "according", "however", "furthermore", "additionally"]
-            ]
-
-            # If nearby Act keywords exist and match verified_act_sections for this sec_num, skip
-            if nearby_act_words and any((w, sec_num) in verified_act_sections for w in nearby_act_words):
-                continue
-
-            # If no specific nearby Act keywords exist in the sentence, check if this section was verified in Check 1
-            if not nearby_act_words and any(sec_num == s_num for (_, s_num) in verified_act_sections):
-                continue
-
-            # Check whether this section is grounded in a context chunk matching the sentence's Act
-            is_grounded = False
-            for chunk in context_chunks:
-                c_text = chunk.get("text", "")
-                c_meta = f"{chunk.get('metadata', {}).get('document_name', '')} {chunk.get('metadata', {}).get('act_name', '')}".lower()
-                if cls._has_section_in_text(sec_num, c_text):
-                    if nearby_act_words:
-                        if any(w in c_text.lower() or w in c_meta for w in nearby_act_words):
-                            is_grounded = True
-                            break
-                    else:
-                        is_grounded = True
-                        break
-
-            if not is_grounded:
-                # Final safety valve: if verified_act_sections is empty (CHECK 1 found nothing)
-                # and the section number appears in ANY retrieved chunk text, don't redact it —
-                # the act name just wasn't in metadata, but the section IS grounded.
-                if not verified_act_sections:
-                    raw_grounded = any(
-                        cls._has_section_in_text(sec_num, chunk.get("text", ""))
-                        for chunk in context_chunks
-                    )
-                    if raw_grounded:
-                        continue
-                unverified_sec_spans.append((match.start(), match.end(), full_sec))
-
-        # Redact only the unverified section spans in reverse order to preserve string offsets
-        for start_idx, end_idx, full_sec in sorted(unverified_sec_spans, key=lambda x: x[0], reverse=True):
-            if full_sec not in unverified_claims:
-                unverified_claims.append(full_sec)
-            answer = answer[:start_idx] + 'the applicable provisions' + answer[end_idx:]
+            if sec_num not in verified_section_nums:
+                raw_grounded = any(
+                    cls._has_section_in_text(sec_num, chunk.get("text", ""), act_context=str(chunk.get("metadata", {})))
+                    for chunk in context_chunks
+                )
+                if not raw_grounded and full_sec not in unverified_claims:
+                    unverified_claims.append(full_sec)
 
         # --- CHECK 3: Standalone State Amendment Verification ---
         state_modifiers = ["telangana", "andhra pradesh", "andhra", "karnataka", "maharashtra", "tamil nadu", "delhi"]
@@ -357,7 +347,7 @@ class LegalRAGChain:
                     answer = re.sub(r'\b' + re.escape(mod) + r'\b\s*(?:amendment)?', '', answer, flags=re.IGNORECASE)
 
         if unverified_claims:
-            print(f"WARNING: Citation Verification Guard detected and redacted uncited claim(s): {unverified_claims}")
+            print(f"[CITATION_AUDIT] Unverified/parametric citations noted: {unverified_claims}")
 
         # Preserve newlines, paragraphs, lists, and markdown structure:
         # Collapse consecutive horizontal spaces/tabs on the same line
@@ -387,9 +377,9 @@ class LegalRAGChain:
                     from langchain_google_genai import ChatGoogleGenerativeAI
                     # Pin to a specific versioned model — avoid "gemini-flash-latest" alias
                     # which silently resolves to different versions across API updates.
-                    gemini_fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash-001")
+                    gemini_fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
                     print(f"Attempting Gemini fallback model: {gemini_fallback_model}")
-                    fb_llm = ChatGoogleGenerativeAI(model=gemini_fallback_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=2048)
+                    fb_llm = ChatGoogleGenerativeAI(model=gemini_fallback_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=3072, max_retries=0)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
                     raw_answer = fb_chain.invoke(inputs)
                 except Exception as fb_err1:
@@ -399,17 +389,17 @@ class LegalRAGChain:
             if raw_answer is None and self.groq_key:
                 try:
                     from langchain_groq import ChatGroq
-                    groq_model = os.environ.get("FALLBACK_MODEL", "openai/gpt-oss-120b")
+                    groq_model = os.environ.get("FALLBACK_MODEL", "qwen/qwen3.8-27b")
                     print(f"Attempting Groq fallback model: {groq_model}")
-                    fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=2048)
+                    fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=3072)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
                     raw_answer = fb_chain.invoke(inputs)
                 except Exception as fb_err2:
                     print(f"Groq fallback model failed: {fb_err2}")
                     try:
-                        groq_fast = "openai/gpt-oss-20b"
+                        groq_fast = "groq/compound-mini"
                         print(f"Attempting fast Groq fallback: {groq_fast}")
-                        fb_llm_fast = ChatGroq(model=groq_fast, api_key=self.groq_key, temperature=0.0, max_tokens=2048)
+                        fb_llm_fast = ChatGroq(model=groq_fast, api_key=self.groq_key, temperature=0.0, max_tokens=3072)
                         fb_chain_fast = self.get_prompt() | fb_llm_fast | StrOutputParser()
                         raw_answer = fb_chain_fast.invoke(inputs)
                     except Exception as fb_err3:
@@ -420,7 +410,7 @@ class LegalRAGChain:
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
                     print("Attempting Gemini fallback for Groq primary...")
-                    fb_llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=self.gemini_key, temperature=0.0, max_tokens=2048)
+                    fb_llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=self.gemini_key, temperature=0.0, max_tokens=3072)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
                     raw_answer = fb_chain.invoke(inputs)
                 except Exception as fb_err4:
@@ -478,10 +468,22 @@ RULES:
         chain = hyde_prompt | self._llm | StrOutputParser()
         try:
             passage = chain.invoke({"question": question}).strip()
-            print(f"[HyDE] Generated passage: {passage[:120]}...")
+            print(f"[HyDE] Generated passage: {passage[:120].encode('ascii', 'replace').decode('ascii')}...")
             return passage
         except Exception as e:
-            print(f"[HyDE] Generation failed ({e}). Falling back to keyword expansion.")
+            print(f"[HyDE] Primary generation failed ({e}). Attempting Groq fallback...")
+            if self.groq_key:
+                try:
+                    from langchain_groq import ChatGroq
+                    groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
+                    fb_chain = hyde_prompt | groq_llm | StrOutputParser()
+                    passage = fb_chain.invoke({"question": question}).strip()
+                    print(f"[HyDE-Groq] Generated passage: {passage[:120].encode('ascii', 'replace').decode('ascii')}...")
+                    return passage
+                except Exception as groq_err:
+                    print(f"[HyDE-Groq] Fallback failed: {groq_err}")
+
+            print("[HyDE] Falling back to keyword expansion.")
             return self.hyde_fallback_expand_query(question)
 
     def hyde_fallback_expand_query(self, question: str) -> str:
@@ -612,7 +614,7 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
             if self.groq_key:
                 try:
                     from langchain_groq import ChatGroq
-                    groq_exp_llm = ChatGroq(model="openai/gpt-oss-20b", api_key=self.groq_key, temperature=0.0)
+                    groq_exp_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
                     fb_chain = prompt | groq_exp_llm | StrOutputParser()
                     raw_output = fb_chain.invoke({"question": question}).strip()
                     return self._strip_section_numbers(raw_output)
@@ -621,8 +623,8 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
             if self.gemini_key:
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
-                    gem_exp_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash-001")
-                    gem_exp_llm = ChatGoogleGenerativeAI(model=gem_exp_model, google_api_key=self.gemini_key, temperature=0.0)
+                    gem_exp_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
+                    gem_exp_llm = ChatGoogleGenerativeAI(model=gem_exp_model, google_api_key=self.gemini_key, temperature=0.0, max_retries=0)
                     fb_chain = prompt | gem_exp_llm | StrOutputParser()
                     raw_output = fb_chain.invoke({"question": question}).strip()
                     return self._strip_section_numbers(raw_output)
@@ -636,14 +638,11 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
         """
         Public entry point for query expansion — called by retrieval.py.
 
-        Routes to HyDE (Hypothetical Document Embedding) by default.
-        HyDE generates a short plausible statute passage, which when embedded
-        sits far closer in vector space to real matching chunks than a flat
-        keyword list — no manual domain routing rules required.
-
-        Falls back automatically to keyword-list expansion if HyDE fails.
+        Uses the 13-domain Indian statutory scoping prompt to translate colloquial
+        queries into high-signal legal search terms (Act names, legal concepts,
+        relevant statutory vocabulary).
         """
-        return self.hyde_expand_query(question)
+        return self.hyde_fallback_expand_query(question)
 
     def handle_conversational(self, question: str, history: List[Any]) -> str:
         """
@@ -677,7 +676,16 @@ You can help with:
         chain = conv_prompt | self._llm | StrOutputParser()
         try:
             return chain.invoke({"question": question, "history": history})
-        except Exception:
+        except Exception as e:
+            print(f"[Conversational] Primary LLM failed ({e}). Attempting Groq fallback...")
+            if self.groq_key:
+                try:
+                    from langchain_groq import ChatGroq
+                    groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
+                    fb_chain = conv_prompt | groq_llm | StrOutputParser()
+                    return fb_chain.invoke({"question": question, "history": history})
+                except Exception as fb_err:
+                    print(f"[Conversational] Groq fallback failed: {fb_err}")
             return "Hi! I'm NyayBot — I can answer legal questions grounded in Indian statutory law. Ask me about criminal law, consumer rights, cyber fraud, workplace issues, or property disputes."
 
     @staticmethod

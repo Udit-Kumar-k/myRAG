@@ -1,7 +1,11 @@
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+from dotenv import load_dotenv
 import numpy as np
 from typing import List, Dict, Any, Tuple, Union
 from src.backend.indexing import LegalIndexManager, tokenize_for_bm25
+
+load_dotenv()
 
 import re
 
@@ -24,6 +28,9 @@ CRIMINAL_KEYWORDS = [
     "stole", "stolen", "robbed", "rob", "looted", "snatched",
     "burglary", "housebreaking", "break-in", "broke into", "breaking into",
     "shoplifting", "extortion", "trespass", "criminal trespass",
+    # Verbal abuse / intimidation vocabulary
+    "intimidation", "criminal intimidation", "verbal abuse", "verbally abusing",
+    "threat", "threatened", "threatening", "blackmail", "blackmailed",
 ]
 
 CYBER_KEYWORDS = [
@@ -33,9 +40,13 @@ CYBER_KEYWORDS = [
     "intermediary", "digital", "electronic", "computer", "network",
     "data breach", "unauthorized access", "cyber terrorism",
     "obscene content", "defamation online", "email", "website",
-    # Colloquial attack-vector phrasings
+    # Colloquial attack-vector phrasings & online fraud
     "malicious link", "otp", "otp fraud", "account hacked", "lost money online",
-    "bank account hacked", "suspicious link", "suspicious message",
+    "bank account hacked", "suspicious link", "suspicious message", "sms",
+    "clicked", "scam", "scammed", "scammers", "fraud", "fraudulent",
+    "electricity bill", "bill scam", "fake link", "phishing link",
+    "entered otp", "entering otp", "unauthorized transaction",
+    "unauthorised transaction", "unauthorized debit", "unauthorised debit",
 ]
 
 CONSUMER_KEYWORDS = [
@@ -52,17 +63,17 @@ BANKING_KEYWORDS = [
     "npa", "non-performing asset", "upi", "neft", "rtgs", "imps",
     "cheque", "cheques", "cheque bounce", "bounced cheque", "cheque dishonour",
     "dishonour of cheque", "dishonoured", "negotiable instrument", "section 138",
-    "financial fraud", "credit", "debit", "mortgage", "insurance",
-    "nbfc", "microfinance", "digital payment",
+    "mortgage", "insurance", "nbfc", "microfinance",
 ]
 
 CIVIL_KEYWORDS = [
-    # Employment and salary disputes (route to general — ICA/Payment of Wages Act)
-    "salary", "wages", "employment", "employer", "employee",
+    # Employment and salary disputes (route to general — ICA/Payment of Wages Act/Code on Wages)
+    "salary", "wages", "employment", "employer", "employee", "boss", "overtime",
+    "working hours", "workplace", "workplace harassment", "office", "hostile work environment",
     "notice period", "termination", "wrongful termination",
-    "labour", "labor", "payment of wages", "provident fund",
-    "resigned", "resignation", "dismissed", "dismissal",
-    "contract of employment", "appointment letter",
+    "labour", "labor", "payment of wages", "provident fund", "epf", "gratuity", "bonus",
+    "resigned", "resignation", "dismissed", "dismissal", "posh",
+    "contract of employment", "appointment letter", "minimum wage",
     # Inheritance and succession (route to general — Hindu Succession Act)
     "inheritance", "succession", "intestate", "testament", "probate",
     "last will", "without a will", "making a will", "leave a will", "will and testament",
@@ -106,6 +117,12 @@ def route_query(query: str) -> str:
     banking_score  = get_score(BANKING_KEYWORDS)
     civil_score    = get_score(CIVIL_KEYWORDS)
 
+    # Special handling for online/OTP/phishing banking fraud:
+    # If query involves digital attack vectors (OTP, SMS, link, phishing, hacked),
+    # the governing penal statute is IT Act (cyber namespace), not banking regulations.
+    if cyber_score > 0 and ("otp" in q_lower or "sms" in q_lower or "link" in q_lower or "phishing" in q_lower or "hacked" in q_lower):
+        return "cyber"
+
     scores = {
         "criminal": criminal_score,
         "cyber":    cyber_score,
@@ -125,22 +142,59 @@ def route_query(query: str) -> str:
     return tied[0]
 
 class LegalRAGPipeline:
-    def __init__(self, index_manager: LegalIndexManager, reranker_name: str = "BAAI/bge-reranker-v2-m3", confidence_threshold: float = 0.65):
+    def __init__(self, index_manager: LegalIndexManager, confidence_threshold: float = 0.55):
         self.index_manager = index_manager
-        self.reranker_name = reranker_name
         self.confidence_threshold = confidence_threshold
-        self.reranker = None
 
-    def load_reranker(self):
-        """Lazy loads the cross-encoder reranking model."""
-        if self.reranker is None:
-            print(f"Loading reranker model {self.reranker_name}...")
-            from sentence_transformers import CrossEncoder
-            import torch
-            device = os.environ.get("RERANKER_DEVICE", "cpu")
-            self.reranker = CrossEncoder(self.reranker_name, device=device)
-            print(f"Reranker loaded successfully on device={device}.")
-        return self.reranker
+    def rerank_with_cohere(self, query: str, candidates: List[Dict[str, Any]], top_n: int = 5) -> List[Dict[str, Any]]:
+        """
+        Reranks retrieved candidate chunks using Cohere's Cross-Encoder API (model: rerank-v3.5).
+        Gracefully falls back to existing FAISS/RRF score ordering if:
+        - COHERE_API_KEY is not set or empty
+        - USE_COHERE_RERANK is set to false
+        - Monthly quota is reached or network fails
+        """
+        if not candidates:
+            return []
+
+        # Ensure default relevance_score is set to faiss_score for all candidates first
+        for cand in candidates:
+            if "relevance_score" not in cand:
+                cand["relevance_score"] = float(cand.get("faiss_score", 0.0))
+
+        api_key = os.environ.get("COHERE_API_KEY", "").strip()
+        use_cohere = os.environ.get("USE_COHERE_RERANK", "true").lower() == "true"
+
+        if not api_key or not use_cohere:
+            candidates.sort(key=lambda x: x.get("relevance_score", 0.0), reverse=True)
+            return candidates[:top_n]
+
+        try:
+            import cohere
+            co = cohere.Client(api_key=api_key)
+            docs = [c.get("text", "")[:2048] for c in candidates]
+            response = co.rerank(
+                model="rerank-v3.5",
+                query=query,
+                documents=docs,
+                top_n=min(top_n, len(candidates))
+            )
+
+            reranked = []
+            for item in response.results:
+                chunk = dict(candidates[item.index])
+                chunk["relevance_score"] = float(item.relevance_score)
+                chunk["cohere_score"] = float(item.relevance_score)
+                reranked.append(chunk)
+
+            if reranked:
+                print(f"[COHERE RERANK] Reranked {len(candidates)} candidates down to {len(reranked)} (top score: {reranked[0]['relevance_score']:.4f})")
+                return reranked
+        except Exception as e:
+            print(f"[COHERE RERANK FALLBACK] Cohere rerank unavailable or failed ({e}). Falling back to FAISS/RRF scores.")
+
+        candidates.sort(key=lambda x: x.get("relevance_score", 0.0), reverse=True)
+        return candidates[:top_n]
 
     def rrf_merge(self, dense_results: List[Tuple[Dict[str, Any], int]], sparse_results: List[Tuple[Dict[str, Any], int]], k: int = 60, temporal_boost: float = 0.1) -> List[Dict[str, Any]]:
         """
@@ -148,6 +202,7 @@ class LegalRAGPipeline:
         Applies publication year temporal weighting.
         """
         rrf_scores: Dict[str, float] = {}
+        faiss_best: Dict[str, float] = {}  # best FAISS cosine score per chunk
         # Keep map of chunk ID/unique key to the chunk object itself
         chunk_map: Dict[str, Dict[str, Any]] = {}
 
@@ -166,8 +221,11 @@ class LegalRAGPipeline:
         for _, (chunk, r) in enumerate(dense_results):
             key = get_chunk_key(chunk)
             chunk_map[key] = chunk
-            # RRF Score formula: 1 / (k + rank)
             rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (k + r + 1)
+            # Keep the best (max) faiss_score seen for this chunk across namespaces
+            if "faiss_score" in chunk:
+                existing = faiss_best.get(key, -1.0)
+                faiss_best[key] = max(existing, chunk["faiss_score"])
 
         # Process sparse results (same rank-preservation rationale as above).
         for _, (chunk, r) in enumerate(sparse_results):
@@ -177,23 +235,15 @@ class LegalRAGPipeline:
 
         # Apply temporal boost
         # Normalize pub_year in range [1990, 2026]
-        min_year, max_year = 1990, 2026
-        
+        # Sort and build result list with scores attached
+        sorted_keys = sorted(rrf_scores.keys(), key=lambda k: rrf_scores[k], reverse=True)
         merged_results = []
-        for key, rrf_score in rrf_scores.items():
+        for key in sorted_keys:
             chunk = chunk_map[key]
-            pub_year = chunk["metadata"].get("pub_year", 2000)
-
-            # Normalize year to [0, 1] range, clipping if outside
-            normalized_year = (pub_year - min_year) / (max_year - min_year)
-            normalized_year = max(0.0, min(1.0, normalized_year))
-
-            # Combine RRF score with temporal weight
-            final_score = rrf_score + (temporal_boost * normalized_year)
-
-            # Add final score to metadata for transparency/debugging
             chunk_copy = dict(chunk)
-            chunk_copy["rrf_score"] = final_score
+            chunk_copy["rrf_score"] = rrf_scores[key]
+            # Attach the best FAISS score seen for this chunk (0.0 if not in dense results)
+            chunk_copy["faiss_score"] = faiss_best.get(key, chunk_copy.get("faiss_score", 0.0))
             merged_results.append(chunk_copy)
 
         # Sort descending by final score
@@ -233,7 +283,11 @@ class LegalRAGPipeline:
             ns_dense = []
             for rank, (score, idx) in enumerate(zip(scores[0], indices[0])):
                 if idx != -1 and idx < len(chunks):
-                    ns_dense.append((chunks[idx], rank))
+                    # Store the raw cosine similarity score on the chunk dict
+                    # so it can be used as a confidence signal after RRF merge.
+                    chunk_with_score = dict(chunks[idx])
+                    chunk_with_score["faiss_score"] = float(score)
+                    ns_dense.append((chunk_with_score, rank))
             all_dense_results.extend(ns_dense)
 
             # 2. Sparse retrieval (BM25)
@@ -323,10 +377,7 @@ class LegalRAGPipeline:
             "retrieved_chunks": List[Dict[str, Any]]
         }
         """
-        # Step 1: Routing
-        namespace = route_query(query_text)
-        
-        # Step 1.5: Query Expansion (translate colloquial to legal terms)
+        # Step 1: Query Expansion / HyDE (translate colloquial user text to statutory terms)
         expanded_query = query_text
         try:
             from src.backend.chain import LegalRAGChain
@@ -335,13 +386,18 @@ class LegalRAGPipeline:
             if api_key:
                 chain = LegalRAGChain()
                 expanded_query = chain.expand_query(query_text)
-                print(f"Original query: {query_text}")
-                print(f"Expanded query: {expanded_query}")
+                print(f"Original query: {query_text.encode('ascii', 'replace').decode('ascii')}")
+                print(f"Expanded query: {expanded_query.encode('ascii', 'replace').decode('ascii')}")
         except Exception as e:
             print(f"Query expansion failed or skipped: {e}")
 
-        # Step 2 & 3: Dual Retrieval and RRF Merge (top 20 candidate set)
-        candidates = self.retrieve(expanded_query, target_namespace=namespace, top_n=20)
+        # Step 2: Domain Routing (uses both user input and HyDE expanded legal terms for smart scoping)
+        combined_routing_query = f"{query_text} {expanded_query}"
+        namespace = route_query(combined_routing_query)
+        print(f"[ROUTER] Routed query to namespace: '{namespace}'")
+
+        # Step 3: Dual Retrieval and RRF Merge (top 10 candidate set)
+        candidates = self.retrieve(expanded_query, target_namespace=namespace, top_n=10)
         
         if not candidates:
             return {
@@ -352,29 +408,14 @@ class LegalRAGPipeline:
                 "retrieved_chunks": []
             }
 
-        # Step 4: Cross-Encoder Reranking
-        # We use a smart truncation window of 2048 characters centered around
-        # the query terms. This keeps sequence length small (fast on CPU) while
-        # ensuring the reranker actually sees the relevant sentences.
-        MAX_RERANK_CHARS = 2048
-        reranker = self.load_reranker()
-        pairs = [[expanded_query, self.smart_truncate(cand["text"], expanded_query, MAX_RERANK_CHARS)] for cand in candidates]
-        
-        # Run cross-encoder scoring
-        rerank_scores = reranker.predict(pairs, batch_size=4)
-        
-        # Add reranker scores and sort
-        for cand, score in zip(candidates, rerank_scores):
-            # bge-reranker-v2-m3 (num_labels=1) already applies sigmoid
-            # inside .predict() — scores are already in [0, 1] range.
-            cand["relevance_score"] = float(score)
+        # Step 4: Reranking & Score Assignment
+        # Uses Cohere rerank-v3.5 API if COHERE_API_KEY is configured,
+        # otherwise gracefully falls back to BGE-M3 FAISS cosine similarity.
+        top_chunks = self.rerank_with_cohere(expanded_query, candidates, top_n=5)
 
-        # Sort descending by relevance score
-        candidates.sort(key=lambda x: x["relevance_score"], reverse=True)
-        top_chunks = candidates[:5]
-        
         # Top-1 score is the confidence score
-        confidence = top_chunks[0]["relevance_score"] if top_chunks else 0.0
+        confidence = top_chunks[0].get("relevance_score", 0.0) if top_chunks else 0.0
+        print(f"[CONFIDENCE] Top relevance score: {confidence:.4f} (threshold: {self.confidence_threshold})")
 
         # Step 4b: Cyber-namespace fallback
         # If confidence is below the gate AND the query contains at least one
@@ -387,25 +428,18 @@ class LegalRAGPipeline:
         )
         if confidence < self.confidence_threshold and cyber_keyword_hit and namespace != "cyber":
             print(f"[Cyber fallback] Initial confidence {confidence:.4f} < gate; retrying on isolated cyber namespace.")
-            fb_candidates = self.retrieve(expanded_query, target_namespace="cyber", top_n=20)
+            fb_candidates = self.retrieve(expanded_query, target_namespace="cyber", top_n=15)
             if fb_candidates:
-                fb_pairs = [
-                    [expanded_query, self.smart_truncate(c["text"], expanded_query, MAX_RERANK_CHARS)]
-                    for c in fb_candidates
-                ]
-                fb_scores = reranker.predict(fb_pairs, batch_size=4)
-                for c, s in zip(fb_candidates, fb_scores):
-                    c["relevance_score"] = float(s)
-                fb_candidates.sort(key=lambda x: x["relevance_score"], reverse=True)
-                fb_confidence = fb_candidates[0]["relevance_score"]
+                fb_top_chunks = self.rerank_with_cohere(expanded_query, fb_candidates, top_n=5)
+                fb_confidence = fb_top_chunks[0].get("relevance_score", 0.0) if fb_top_chunks else 0.0
                 print(f"[Cyber fallback] Cyber-namespace confidence: {fb_confidence:.4f}")
                 if fb_confidence > confidence:
                     print(f"[Cyber fallback] Adopting cyber-namespace result (better score).")
-                    top_chunks = fb_candidates[:5]
+                    top_chunks = fb_top_chunks
                     confidence = fb_confidence
                     namespace = "cyber (fallback)"
                 else:
-                    print(f"[Cyber fallback] Original result retained (cyber-namespace did not improve score).")
+                    print(f"[Cyber fallback] Original result retained.")
 
         # Step 5: Confidence Gate
         refused = confidence < self.confidence_threshold

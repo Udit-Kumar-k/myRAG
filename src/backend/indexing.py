@@ -1,4 +1,5 @@
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import pickle
 import re
 import numpy as np
@@ -11,6 +12,53 @@ from rank_bm25 import BM25Okapi
 def tokenize_for_bm25(text: str) -> List[str]:
     """Tokenizes text into lowercase words for BM25 keyword matching."""
     return re.findall(r"\b\w{2,}\b", text.lower())
+
+
+class HFEmbeddingAPI:
+    """Drop-in replacement for SentenceTransformer that calls the
+    HuggingFace Inference API instead of running a local model.
+
+    huggingface_hub.InferenceClient.feature_extraction() returns
+    the pooled sentence embedding (same pooling as SentenceTransformer),
+    so the existing FAISS index built with local BGE-M3 stays valid.
+
+    Set EMBEDDING_PROVIDER=api to activate this for free-tier deployment.
+    """
+    def __init__(self, model_name: str = "BAAI/bge-m3"):
+        self.model_name = model_name
+        token = os.environ.get("HF_TOKEN", "")
+        from huggingface_hub import InferenceClient
+        self._client = InferenceClient(token=token)
+        print(f"HF Inference API client ready for {model_name}")
+
+    def encode(self, texts, normalize_embeddings: bool = False, batch_size: int = 8, **kwargs) -> np.ndarray:
+        """Encode texts via HF Inference API. Returns (N, dim) float32 array."""
+        if isinstance(texts, str):
+            texts = [texts]
+
+        all_embs = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            # InferenceClient returns np.ndarray of shape (n_texts, embedding_dim)
+            # for sentence-transformer style models when called with a list.
+            embs = self._client.feature_extraction(batch, model=self.model_name)
+            all_embs.append(np.array(embs, dtype="float32"))
+
+        result = np.vstack(all_embs)  # (N, dim)
+        if normalize_embeddings:
+            norms = np.linalg.norm(result, axis=1, keepdims=True)
+            result = result / np.maximum(norms, 1e-9)
+        return result
+
+    # Compatibility shim: SentenceTransformer exposes max_seq_length
+    @property
+    def max_seq_length(self) -> int:
+        return 512
+
+    @max_seq_length.setter
+    def max_seq_length(self, value: int) -> None:
+        pass  # no-op — sequence length is handled server-side
+
 
 class LegalIndexManager:
     def __init__(self, index_dir: str = "data/indexes", model_name: str = "BAAI/bge-m3"):
@@ -27,15 +75,30 @@ class LegalIndexManager:
         os.makedirs(self.index_dir, exist_ok=True)
 
     def load_embedding_model(self):
-        """Lazy loads the BGE-M3 embedding model, using GPU when available."""
+        """Lazy loads the embedding model.
+        
+        When EMBEDDING_PROVIDER=api  → uses HuggingFace Inference API (free, no GPU needed).
+        When EMBEDDING_PROVIDER=local (default) → loads model locally with GPU when available.
+        """
         if self.model is None:
-            import torch
-            device = os.environ.get("EMBEDDING_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
-            print(f"Loading embedding model {self.model_name} on device={device}...")
-            from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(self.model_name, device=device)
-            self.model.max_seq_length = 512  # restrict sequence length to save memory
-            print("Model loaded successfully.")
+            provider = os.environ.get("EMBEDDING_PROVIDER", "local").lower()
+            if provider == "api":
+                self.model = HFEmbeddingAPI(self.model_name)
+            else:
+                import torch
+                device = os.environ.get("EMBEDDING_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
+                print(f"Loading embedding model {self.model_name} on device={device}...")
+                from sentence_transformers import SentenceTransformer
+                try:
+                    self.model = SentenceTransformer(self.model_name, device=device)
+                except Exception as e:
+                    if device == "cuda":
+                        print(f"CUDA initialization failed ({e}). Falling back to CPU...")
+                        self.model = SentenceTransformer(self.model_name, device="cpu")
+                    else:
+                        raise e
+                self.model.max_seq_length = 512
+                print("Model loaded successfully.")
         return self.model
 
     def build_indexes(self, all_chunks: List[Dict[str, Any]], batch_size: int = 256, force_rebuild: bool = False):
