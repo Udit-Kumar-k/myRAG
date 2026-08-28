@@ -125,6 +125,16 @@ class LegalIndexManager:
         model = self.load_embedding_model()
         import faiss
 
+        # torch.no_grad() is only needed when running a local SentenceTransformer.
+        # When EMBEDDING_PROVIDER=api, torch isn't installed (removed from
+        # requirements.txt to save ~2 GB), so we fall back to a no-op context.
+        try:
+            import torch
+            _inference_ctx = torch.no_grad
+        except ImportError:
+            from contextlib import nullcontext
+            _inference_ctx = nullcontext
+
         for ns in self.namespaces:
             # Check if index files already exist to support resuming.
             # Skip only when force_rebuild is False — after any ingestion or
@@ -158,9 +168,8 @@ class LegalIndexManager:
             texts = [chunk["text"] for chunk in chunks]
             
             # Encode in batches to prevent OOM
-            import torch
             embeddings = []
-            with torch.no_grad():
+            with _inference_ctx():
                 for i in range(0, len(texts), batch_size):
                     batch_texts = texts[i : i + batch_size]
                     # Normalize embeddings so cosine similarity = inner product (dot product)
@@ -269,9 +278,8 @@ if __name__ == "__main__":
 
     print("=== NyayBot Index Generation Pipeline ===")
 
-    hf_token = os.environ.get("HF_TOKEN")
-    if hf_token == "your_huggingface_token_here" or not hf_token:
-        hf_token = None
+    hf_token = os.environ.get("HF_TOKEN", "").strip()
+    hf_token = hf_token or None
 
     # Set FORCE_REBUILD=1 in env to rebuild indexes even if files already exist.
     # Always set this after any chunking or ingestion change.

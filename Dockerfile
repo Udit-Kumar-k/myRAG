@@ -103,9 +103,9 @@ EXPOSE 7860
 # Uvicorn startup:
 #   --host 0.0.0.0  required for HF Spaces networking
 #   --port 7860     must match app_port in README YAML
-#   --workers 1     single worker — BGE-M3 + reranker share one GPU/RAM budget;
-#                   multiple workers would each load their own model copy and OOM
-#   --timeout-keep-alive 120  long timeout for first-query model cold-load
+#   --workers 1     single worker — keeps in-memory FAISS indexes lean;
+#                   multiple workers would duplicate index allocations
+#   --timeout-keep-alive 120  long timeout for network requests
 CMD ["uvicorn", "src.backend.main:app", \
      "--host", "0.0.0.0", \
      "--port", "7860", \

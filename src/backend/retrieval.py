@@ -47,6 +47,18 @@ CYBER_KEYWORDS = [
     "electricity bill", "bill scam", "fake link", "phishing link",
     "entered otp", "entering otp", "unauthorized transaction",
     "unauthorised transaction", "unauthorized debit", "unauthorised debit",
+    # Fake profile / impersonation / social-platform crimes
+    "fake account", "fake profile", "fake id", "fake identity",
+    "impersonation", "impersonate", "impersonating", "impersonated",
+    "instagram", "facebook", "whatsapp", "twitter", "telegram", "snapchat",
+    "youtube", "linkedin", "threads", "social media profile",
+    "morphed photos", "morphed images", "morphed video", "morphed picture",
+    "edited photos", "edited images", "fake photos", "fake images",
+    "deepfake", "revenge porn", "non-consensual",
+    # Loan recovery harassment via electronic communications
+    "loan recovery", "recovery agent", "recovery agents",
+    "harassment calls", "threatening calls", "abusive calls",
+    "collection calls", "loan agent",
 ]
 
 CONSUMER_KEYWORDS = [
@@ -208,6 +220,66 @@ class LegalRAGPipeline:
         candidates.sort(key=lambda x: x.get("relevance_score", 0.0), reverse=True)
         return candidates[:top_n]
 
+    @staticmethod
+    def _filter_irrelevant_chunks(
+        chunks: List[Dict[str, Any]],
+        namespace: str,
+        query_lower: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Post-rerank filter that drops chunks from paramilitary / armed-forces
+        acts when the query is routed to the 'general' namespace (employment,
+        succession, contract) and the query itself has no military vocabulary.
+
+        Problem: Acts like CRPF Act 1949, BSF Act, CISF Act contain 'service',
+        'employment', 'pay', 'duty' keywords that match civilian employment
+        queries in the general namespace, polluting the sources list.
+
+        The filter is a narrow blocklist — it only fires when namespace='general'
+        and the query does not contain explicit police/military terminology.
+        It never modifies results for criminal, cyber, consumer, or banking queries.
+        Safety net: if filtering removes everything, the original list is returned.
+        """
+        if namespace != "general":
+            return chunks  # only relevant for civilian employment / succession
+
+        # If user explicitly mentions a military/police context, allow all chunks
+        military_terms = {
+            "police", "military", "army", "navy", "airforce", "air force",
+            "crpf", "bsf", "cisf", "itbp", "ssb", "paramilitary",
+            "defence", "defense", "armed forces", "constable", "inspector",
+            "sipahi", "havildar", "jawan", "trooper", "battalion",
+        }
+        if any(t in query_lower for t in military_terms):
+            return chunks
+
+        # Act name fragments that are irrelevant to civilian employment / succession
+        blocklist = [
+            "central reserve police", "crpf",
+            "border security force", "bsf act",
+            "central industrial security", "cisf",
+            "indo-tibetan border", "itbp",
+            "sashastra seema bal", "ssb act",
+            "coast guard",
+            "armed forces", "army act", "navy act", "air force act",
+            "national security guard",
+        ]
+
+        filtered = []
+        for chunk in chunks:
+            meta = chunk.get("metadata", {})
+            act_key = " ".join([
+                str(meta.get("act_name", "")),
+                str(meta.get("document_name", "")),
+            ]).lower()
+            if any(b in act_key for b in blocklist):
+                print(f"[CHUNK FILTER] Dropped paramilitary chunk: {act_key[:80]}")
+                continue
+            filtered.append(chunk)
+
+        # Safety net: never return empty — fall back to unfiltered if all matched blocklist
+        return filtered if filtered else chunks
+
     def rrf_merge(self, dense_results: List[Tuple[Dict[str, Any], int]], sparse_results: List[Tuple[Dict[str, Any], int]], k: int = 60, temporal_boost: float = 0.1) -> List[Dict[str, Any]]:
         """
         Merges dense and sparse ranked lists using Reciprocal Rank Fusion (RRF).
@@ -247,6 +319,12 @@ class LegalRAGPipeline:
 
         # Apply temporal boost
         # Normalize pub_year in range [1990, 2026]
+        if temporal_boost > 0:
+            for key, chunk in chunk_map.items():
+                pub_year = chunk.get("metadata", {}).get("pub_year", 2000)
+                norm_year = max(0.0, min(1.0, (pub_year - 1990) / (2026 - 1990)))
+                rrf_scores[key] = rrf_scores[key] * (1.0 + temporal_boost * norm_year)
+
         # Sort and build result list with scores attached
         sorted_keys = sorted(rrf_scores.keys(), key=lambda k: rrf_scores[k], reverse=True)
         merged_results = []
@@ -425,6 +503,11 @@ class LegalRAGPipeline:
         # otherwise gracefully falls back to BGE-M3 FAISS cosine similarity.
         top_chunks = self.rerank_with_cohere(expanded_query, candidates, top_n=5)
 
+        # Step 4a: Post-rerank relevance filter
+        # Drops domain-irrelevant chunks (e.g. CRPF Act in civilian salary queries)
+        # that score well on surface keywords but don't belong to the query domain.
+        top_chunks = self._filter_irrelevant_chunks(top_chunks, namespace, query_text.lower())
+
         # Top-1 score is the confidence score
         confidence = top_chunks[0].get("relevance_score", 0.0) if top_chunks else 0.0
         print(f"[CONFIDENCE] Top relevance score: {confidence:.4f} (threshold: {self.confidence_threshold})")
@@ -443,6 +526,7 @@ class LegalRAGPipeline:
             fb_candidates = self.retrieve(expanded_query, target_namespace="cyber", top_n=15)
             if fb_candidates:
                 fb_top_chunks = self.rerank_with_cohere(expanded_query, fb_candidates, top_n=5)
+                fb_top_chunks = self._filter_irrelevant_chunks(fb_top_chunks, "cyber", query_text.lower())
                 fb_confidence = fb_top_chunks[0].get("relevance_score", 0.0) if fb_top_chunks else 0.0
                 print(f"[Cyber fallback] Cyber-namespace confidence: {fb_confidence:.4f}")
                 if fb_confidence > confidence:

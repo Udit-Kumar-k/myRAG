@@ -18,6 +18,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.log
 .pytest_cache/
 
 # Node/React Frontend

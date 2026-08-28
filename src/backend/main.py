@@ -2,9 +2,12 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import traceback
 import json
+import re
 import time
 import uuid
 import shutil
+import threading
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional, Tuple, Literal
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
@@ -112,8 +115,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 _supabase_configured = (
     SUPABASE_URL.startswith("https://") and
     ".supabase.co" in SUPABASE_URL and
-    SUPABASE_SERVICE_KEY and
-    SUPABASE_SERVICE_KEY != "your_supabase_service_role_key_here"
+    bool(SUPABASE_SERVICE_KEY.strip())
 )
 
 supabase: Optional[Client] = None
@@ -134,6 +136,7 @@ class DatabaseManager:
     """Manages chat history, persisting to Supabase PostgreSQL, falling back to local file if offline."""
     def __init__(self):
         self.local_db_path = "data/local_db.json"
+        self._file_lock = threading.Lock()  # guards local JSON read-modify-write
         os.makedirs("data", exist_ok=True)
         if not os.path.exists(self.local_db_path):
             with open(self.local_db_path, "w") as f:
@@ -168,27 +171,28 @@ class DatabaseManager:
                 
         # 2. Local JSON Fallback (useful for mock development and testing)
         try:
-            with open(self.local_db_path, "r") as f:
-                data = json.load(f)
-            
-            user_key = f"user_{uid}"
-            if user_key not in data:
-                data[user_key] = {}
-            if conv_id not in data[user_key]:
-                data[user_key][conv_id] = []
-                
-            data[user_key][conv_id].append({
-                "message_id": str(uuid.uuid4()),
-                "timestamp": time.time(),
-                **message
-            })
+            with self._file_lock:
+                with open(self.local_db_path, "r") as f:
+                    data = json.load(f)
 
-            # Atomic write: write to .tmp then rename so a mid-write crash
-            # never leaves local_db.json truncated to 0 bytes.
-            tmp_path = self.local_db_path + '.tmp'
-            with open(tmp_path, "w") as f:
-                json.dump(data, f, indent=2)
-            shutil.move(tmp_path, self.local_db_path)
+                user_key = f"user_{uid}"
+                if user_key not in data:
+                    data[user_key] = {}
+                if conv_id not in data[user_key]:
+                    data[user_key][conv_id] = []
+
+                data[user_key][conv_id].append({
+                    "message_id": str(uuid.uuid4()),
+                    "timestamp": time.time(),
+                    **message
+                })
+
+                # Atomic write: write to .tmp then rename so a mid-write crash
+                # never leaves local_db.json truncated to 0 bytes.
+                tmp_path = self.local_db_path + '.tmp'
+                with open(tmp_path, "w") as f:
+                    json.dump(data, f, indent=2)
+                shutil.move(tmp_path, self.local_db_path)
         except Exception as e:
             print(f"Failed to save message to local DB: {e}")
 
@@ -223,8 +227,9 @@ class DatabaseManager:
 
         # 2. Local JSON Fallback
         try:
-            with open(self.local_db_path, "r") as f:
-                data = json.load(f)
+            with self._file_lock:
+                with open(self.local_db_path, "r") as f:
+                    data = json.load(f)
             
             user_key = f"user_{uid}"
             history = data.get(user_key, {}).get(conv_id, [])
@@ -233,6 +238,7 @@ class DatabaseManager:
         except Exception as e:
             print(f"Failed to read from local DB: {e}")
             return []
+
     def save_feedback(self, uid: str, feedback: Dict[str, Any]):
         """Saves user feedback on an answer to Supabase or local DB."""
         if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
@@ -251,21 +257,22 @@ class DatabaseManager:
                 print(f"Supabase feedback save error: {e}. Falling back to local file.")
 
         try:
-            with open(self.local_db_path, "r") as f:
-                data = json.load(f)
-            if "feedback" not in data:
-                data["feedback"] = []
-            data["feedback"].append({
-                "id": str(uuid.uuid4()),
-                "user_id": uid,
-                "timestamp": time.time(),
-                **feedback
-            })
-            # Atomic write
-            tmp_path = self.local_db_path + '.tmp'
-            with open(tmp_path, "w") as f:
-                json.dump(data, f, indent=2)
-            shutil.move(tmp_path, self.local_db_path)
+            with self._file_lock:
+                with open(self.local_db_path, "r") as f:
+                    data = json.load(f)
+                if "feedback" not in data:
+                    data["feedback"] = []
+                data["feedback"].append({
+                    "id": str(uuid.uuid4()),
+                    "user_id": uid,
+                    "timestamp": time.time(),
+                    **feedback
+                })
+                # Atomic write
+                tmp_path = self.local_db_path + '.tmp'
+                with open(tmp_path, "w") as f:
+                    json.dump(data, f, indent=2)
+                shutil.move(tmp_path, self.local_db_path)
         except Exception as e:
             print(f"Failed to save feedback to local DB: {e}")
 
@@ -367,8 +374,9 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
 # -------------------------------------------------------------
 _MAX_CACHE = 200
 _CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", 1800))  # 30 min default
+# OrderedDict gives LRU semantics: move_to_end on access, popitem(last=False) to evict.
 # Values: (chunks_list, timestamp_float)
-_session_chunk_cache: Dict[str, Tuple[List[Dict[str, Any]], float]] = {}
+_session_chunk_cache: OrderedDict[str, Tuple[List[Dict[str, Any]], float]] = OrderedDict()
 
 
 # --- Follow-up query detection ---
@@ -384,8 +392,7 @@ _FOLLOWUP_PATTERNS = [
     r"^\s*(ok|okay|thanks|thank\s+you|got\s+it|understood|yes|no|sure|cool|alright|fine|great)\.?\s*$",
     r"^\s*(and\s+then\??|what\s+next\??|what\s+now\??|why\??|how\s+so\??|what\s+else\??|are\s+you\s+sure\??|tell\s+me\s+more\.?)\s*$",
 ]
-import re as _re
-_FOLLOWUP_RE = [_re.compile(p, _re.IGNORECASE) for p in _FOLLOWUP_PATTERNS]
+_FOLLOWUP_RE = [re.compile(p, re.IGNORECASE) for p in _FOLLOWUP_PATTERNS]
 
 def _is_followup_query(question: str, has_prior_history: bool) -> bool:
     """Returns True if the query is a conversational follow-up that should not
@@ -502,10 +509,14 @@ def _run_query_inner(req: QueryRequest, uid: str):
 
     # 1a. Follow-up / clarification shortcut — bypass retrieval gate
     if _is_followup_query(req.question, has_prior):
-        cached_entry = _session_chunk_cache.get(req.conversation_id)
-        if cached_entry:
-            cached_chunks_raw, cache_ts = cached_entry
-            cached_chunks = cached_chunks_raw if (time.time() - cache_ts) < _CACHE_TTL_SECONDS else []
+        if req.conversation_id in _session_chunk_cache:
+            _session_chunk_cache.move_to_end(req.conversation_id)
+            cached_chunks_raw, cache_ts = _session_chunk_cache[req.conversation_id]
+            if (time.time() - cache_ts) < _CACHE_TTL_SECONDS:
+                cached_chunks = cached_chunks_raw
+            else:
+                del _session_chunk_cache[req.conversation_id]
+                cached_chunks = []
         else:
             cached_chunks = []
         print(f"[FOLLOWUP] Detected conversational follow-up. Reusing {len(cached_chunks)} cached chunks.")
@@ -575,11 +586,11 @@ def _run_query_inner(req: QueryRequest, uid: str):
 
     # Cache chunks for future follow-up reuse (with timestamp for TTL)
     if not refused and retrieved_chunks:
-        if len(_session_chunk_cache) >= _MAX_CACHE:
-            # Evict oldest entry
-            oldest_key = next(iter(_session_chunk_cache))
-            del _session_chunk_cache[oldest_key]
+        if req.conversation_id in _session_chunk_cache:
+            _session_chunk_cache.move_to_end(req.conversation_id)
         _session_chunk_cache[req.conversation_id] = (retrieved_chunks, time.time())
+        if len(_session_chunk_cache) > _MAX_CACHE:
+            _session_chunk_cache.popitem(last=False)
 
     sources = []
     for chunk in retrieved_chunks:

@@ -269,7 +269,7 @@ if __name__ == "__main__":
         print("Error: Could not load indexes. Make sure to build them first.")
         sys.exit(1)
 
-    threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.65))
+    threshold = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.55"))
     print(f"Initializing pipeline with CONFIDENCE_THRESHOLD={threshold}...")
     pipeline = LegalRAGPipeline(index_manager, confidence_threshold=threshold)
     chain = LegalRAGChain()

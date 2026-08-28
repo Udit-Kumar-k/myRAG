@@ -54,6 +54,7 @@ GROUNDING AND REFUSAL:
 - Always cite: act name + section number as present in the retrieved chunks
 - Do NOT cite state-specific amendments (e.g. Telangana Amendment, AP Amendment) or local acts UNLESS they appear explicitly in the retrieved context chunks.
 - Verify basic mathematical logic (e.g., dividing property equally among N legal heirs yields N equal shares, not N+1 shares).
+- If a prior user question in conversation history was left unanswered or refused by the system, do NOT re-answer it in a subsequent turn unless the user explicitly asks it again. Never use training memory to fill in what the corpus declined to answer.
 - If no chunk clears confidence threshold:
   "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
 - Never answer from training memory alone
@@ -105,16 +106,21 @@ Retrieved Legal Corpus Context:
 
 
 def format_context(chunks: List[Dict[str, Any]]) -> str:
-    """Formats retrieved chunks for LLM consumption, keeping top 3 chunks concise to stay well under Groq TPM limits."""
+    """Formats retrieved chunks for LLM consumption.
+
+    Passes top 5 chunks at up to 1200 chars each (~6 KB of context) to give
+    multi-act queries (e.g. BSA + BNS + BNSS spanning evidence, arrest, and
+    procedure) enough material to produce a complete answer without truncation.
+    """
     if not chunks:
         return "No relevant context found."
 
     formatted = []
-    for i, chunk in enumerate(chunks[:3]):
+    for i, chunk in enumerate(chunks[:5]):
         meta = chunk.get("metadata", {})
         text = chunk.get("text", "").strip()
-        if len(text) > 900:
-            text = text[:900] + "..."
+        if len(text) > 1200:
+            text = text[:1200] + "..."
         formatted.append(
             f"Source [{i+1}]: {meta.get('act_name', meta.get('document_name', 'Unknown'))}\n"
             f"Legal Domain: {meta.get('namespace', 'Unknown')}\n"
@@ -187,7 +193,7 @@ class LegalRAGChain:
                     model=self.model_name,
                     groq_api_key=self.api_key,
                     temperature=0.0,
-                    max_tokens=3072,
+                    max_tokens=4096,
                 )
             else:
                 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -195,7 +201,7 @@ class LegalRAGChain:
                     model=self.model_name,
                     google_api_key=self.api_key,
                     temperature=0.0,
-                    max_tokens=3072,
+                    max_tokens=4096,
                     max_retries=0,
                 )
             print("LLM initialized successfully.")
@@ -379,7 +385,7 @@ class LegalRAGChain:
                     # which silently resolves to different versions across API updates.
                     gemini_fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
                     print(f"Attempting Gemini fallback model: {gemini_fallback_model}")
-                    fb_llm = ChatGoogleGenerativeAI(model=gemini_fallback_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=3072, max_retries=0)
+                    fb_llm = ChatGoogleGenerativeAI(model=gemini_fallback_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=4096, max_retries=0)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
                     raw_answer = fb_chain.invoke(inputs)
                 except Exception as fb_err1:
@@ -391,7 +397,7 @@ class LegalRAGChain:
                     from langchain_groq import ChatGroq
                     groq_model = os.environ.get("FALLBACK_MODEL", "qwen/qwen3.8-27b")
                     print(f"Attempting Groq fallback model: {groq_model}")
-                    fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=3072)
+                    fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=4096)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
                     raw_answer = fb_chain.invoke(inputs)
                 except Exception as fb_err2:
@@ -399,7 +405,7 @@ class LegalRAGChain:
                     try:
                         groq_fast = "groq/compound-mini"
                         print(f"Attempting fast Groq fallback: {groq_fast}")
-                        fb_llm_fast = ChatGroq(model=groq_fast, api_key=self.groq_key, temperature=0.0, max_tokens=3072)
+                        fb_llm_fast = ChatGroq(model=groq_fast, api_key=self.groq_key, temperature=0.0, max_tokens=4096)
                         fb_chain_fast = self.get_prompt() | fb_llm_fast | StrOutputParser()
                         raw_answer = fb_chain_fast.invoke(inputs)
                     except Exception as fb_err3:
@@ -410,7 +416,7 @@ class LegalRAGChain:
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
                     print("Attempting Gemini fallback for Groq primary...")
-                    fb_llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=self.gemini_key, temperature=0.0, max_tokens=3072)
+                    fb_llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=self.gemini_key, temperature=0.0, max_tokens=4096)
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
                     raw_answer = fb_chain.invoke(inputs)
                 except Exception as fb_err4:

@@ -49,12 +49,12 @@ NyayBot is a Retrieval-Augmented Generation (RAG) system that answers legal ques
 │   └────────┬─────────┘                                           │
 │            ▼                                                     │
 │   ┌──────────────────┐                                           │
-│   │ Cross-Encoder    │ BAAI/bge-reranker-v2-m3                   │
+│   │ Cross-Encoder    │ Cohere rerank-v3.5                        │
 │   │ Reranker         │                                           │
 │   └────────┬─────────┘                                           │
 │            ▼                                                     │
 │   ┌──────────────────┐                                           │
-│   │ Confidence Gate  │ Threshold: 0.65 (calibrated)              │
+│   │ Confidence Gate  │ Threshold: 0.55 (calibrated)              │
 │   └────────┬─────────┘                                           │
 │            │                                                     │
 │     ┌──────┴──────┐                                              │
@@ -107,8 +107,8 @@ The system enforces strict confidence gating (threshold: 0.65) and will **refuse
 2. **FAISS IndexFlatIP** — Inner product search over normalized embeddings (equivalent to cosine similarity)
 3. **BM25 (Okapi)** — Sparse keyword matching via `rank-bm25`
 4. **Reciprocal Rank Fusion (RRF)** — Merges dense and sparse result lists with temporal boost for newer legislation
-5. **Cross-Encoder Reranking** — `BAAI/bge-reranker-v2-m3` rescores top candidates
-6. **Confidence Gate** — Top-1 reranker score must exceed calibrated threshold (0.65) or query is refused
+5. **Cross-Encoder Reranking** — `Cohere rerank-v3.5` API rescores top candidates (with automatic fallback to FAISS scores)
+6. **Confidence Gate** — Top-1 reranker score must exceed calibrated threshold (0.55) or query is refused
 
 ## Tech Stack
 
