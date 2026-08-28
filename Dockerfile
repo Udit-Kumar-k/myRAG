@@ -23,9 +23,11 @@
 #   - app_port must match the port uvicorn binds (7860, set in README.md YAML).
 #   - Secrets (GEMINI_API_KEY, SUPABASE_*, etc.) are set in the HF Space's
 #     Settings → Variables and Secrets panel — never baked into the image.
-#   - HF free tier: 2 vCPU, 16 GB RAM, no GPU. BGE-M3 runs on CPU.
-#     Expect ~30–90 s first-query latency while the reranker cold-loads.
-#     Subsequent queries are faster once both models are warm.
+#   - HF free tier: 2 vCPU, 16 GB RAM, no GPU.
+#     Set EMBEDDING_PROVIDER=api and HF_TOKEN so the BGE-M3 embedding is served
+#     via HF Inference API instead of loading locally.  This avoids the ~2 GB
+#     torch + sentence-transformers layer and the OOM that comes with it.
+#     torch / sentence-transformers are intentionally excluded from requirements.txt.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Frontend build ───────────────────────────────────────────────────

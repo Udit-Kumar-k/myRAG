@@ -185,9 +185,17 @@ class LegalRAGPipeline:
                 chunk = dict(candidates[item.index])
                 co_score = float(item.relevance_score)
                 chunk["cohere_score"] = co_score
-                faiss_s = float(chunk.get("faiss_score", 0.0))
-                # Map Cohere logit probability into standard [0.55, 0.95] confidence scale for matches
-                scaled_score = max(faiss_s, min(0.95, 0.50 + co_score * 0.60)) if co_score >= 0.10 else max(faiss_s, co_score)
+                # Map Cohere relevance score into the pipeline confidence scale:
+                #   co_score >= 0.10 → linear mapping into [0.56, 0.95] (above gate)
+                #   co_score  < 0.10 → cap at 0.44 (strictly below 0.55 gate)
+                # Critically: pre-reranking FAISS score is NOT used as a floor when
+                # Cohere says the chunk is a weak match.  A Cohere score of 0.02
+                # should not be overridden by a FAISS score of 0.72 — that defeats
+                # the entire purpose of cross-encoder reranking.
+                if co_score >= 0.10:
+                    scaled_score = min(0.95, 0.50 + co_score * 0.60)
+                else:
+                    scaled_score = min(0.44, co_score * 3)
                 chunk["relevance_score"] = float(scaled_score)
                 reranked.append(chunk)
 

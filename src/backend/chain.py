@@ -638,11 +638,12 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
         """
         Public entry point for query expansion — called by retrieval.py.
 
-        Uses the 13-domain Indian statutory scoping prompt to translate colloquial
-        queries into high-signal legal search terms (Act names, legal concepts,
-        relevant statutory vocabulary).
+        Routes through HyDE (Hypothetical Document Embedding): generates a short
+        plausible statutory passage so cosine similarity finds the right chunks
+        directly.  hyde_expand_query() already calls hyde_fallback_expand_query()
+        internally on any generation failure, so no separate fallback is needed here.
         """
-        return self.hyde_fallback_expand_query(question)
+        return self.hyde_expand_query(question)
 
     def handle_conversational(self, question: str, history: List[Any]) -> str:
         """
@@ -700,20 +701,16 @@ You can help with:
         q = question.strip().lower()
         # Very short messages (<=3 words) without a question mark
         if len(q.split()) <= 3 and '?' not in q:
-            greetings = {
-                'hi', 'hello', 'hey', 'hiya', 'howdy', 'namaste', 'namaskar',
-                'good morning', 'good evening', 'good afternoon', 'good night',
-                'thanks', 'thank you', 'ok', 'okay', 'sure', 'great', 'nice',
-                'bye', 'goodbye', 'see you', 'later', 'noted', 'understood',
-                'got it', 'makes sense', 'cool', 'wow', 'alright',
-            }
-            if q in greetings or any(q.startswith(g) for g in greetings):
-                return True
+            # Subset check: all words in the query must be pure greeting vocabulary.
+            # The earlier startswith() check was dropped — it caused false-positives
+            # for short legal queries like "ok bail", "sure FIR", "hi murder" where
+            # a greeting word appears as a prefix of a longer legal phrase.
             words = set(re.findall(r'\b\w+\b', q))
             if words.issubset({
-                'hi', 'hello', 'hey', 'thanks', 'ok', 'okay', 'bye', 'great',
-                'cool', 'nice', 'sure', 'noted', 'understood', 'namaste',
-                'good', 'morning', 'evening', 'afternoon', 'night',
+                'hi', 'hello', 'hey', 'hiya', 'howdy', 'thanks', 'ok', 'okay',
+                'bye', 'goodbye', 'great', 'cool', 'nice', 'sure', 'noted',
+                'understood', 'namaste', 'namaskar', 'alright', 'wow',
+                'good', 'morning', 'evening', 'afternoon', 'night', 'thank', 'you',
             }):
                 return True
         # What-can-you-do type queries

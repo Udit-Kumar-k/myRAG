@@ -1,10 +1,17 @@
 # NyayBot backend dependencies
 # Loose pins (~=) allow compatible patches but guard against major version breakage.
+#
+# EMBEDDING NOTE:
+#   torch and sentence-transformers are intentionally excluded.
+#   Set EMBEDDING_PROVIDER=api (HF Inference API via huggingface-hub) for
+#   zero-RAM production deployment on HF Spaces free tier.
+#   For local development with a GPU, install torch + sentence-transformers
+#   separately and set EMBEDDING_PROVIDER=local.
 
 datasets~=3.0
 pymupdf~=1.24
 faiss-cpu~=1.9
-sentence-transformers~=3.3
+huggingface-hub~=0.27
 rank-bm25~=0.2
 fastapi~=0.115
 uvicorn~=0.32
@@ -25,5 +32,4 @@ requests~=2.32
 jinja2~=3.1
 pytest~=8.3
 matplotlib~=3.9
-torch~=2.5
 cohere~=7.1

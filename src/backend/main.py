@@ -44,8 +44,10 @@ async def lifespan(app: FastAPI):
         print("No indexes found on disk — attempting auto-build from corpus (this takes 15–60 min on CPU)...")
         try:
             from src.backend.ingestion import process_corpus
-            hf_token = os.environ.get("HF_TOKEN")
-            chunks = process_corpus(hf_token=hf_token if hf_token != "your_huggingface_token_here" else None)
+            # Use empty-string coercion instead of a hardcoded placeholder sentinel —
+            # avoids silently passing a bad token when a non-standard placeholder is used.
+            hf_token = os.environ.get("HF_TOKEN", "").strip()
+            chunks = process_corpus(hf_token=hf_token or None)
             if chunks:
                 print(f"Auto-build: {len(chunks)} chunks generated. Building indexes...")
                 index_manager.build_indexes(chunks, batch_size=16)
@@ -412,7 +414,9 @@ class SourceMetadata(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     sources: List[SourceMetadata]
-    confidence_score: float
+    # Optional — None for conversational/greeting responses that have no
+    # retrieval confidence to report (not a RAG answer).
+    confidence_score: Optional[float] = None
     refused: bool
     provider: Optional[str] = "gemini"
     model: Optional[str] = "gemini-3.6-flash"
@@ -486,11 +490,11 @@ def _run_query_inner(req: QueryRequest, uid: str):
         })
         db_manager.save_message(uid, req.conversation_id, {
             "role": "assistant", "content": answer,
-            "sources": [], "confidence_score": 1.0, "refused": False,
+            "sources": [], "confidence_score": None, "refused": False,
             "namespace_searched": "conversational", "latency_ms": latency_ms
         })
         return {
-            "answer": answer, "sources": [], "confidence_score": 1.0,
+            "answer": answer, "sources": [], "confidence_score": None,
             "refused": False, "provider": getattr(rag_chain, "provider", "gemini"),
             "model": getattr(rag_chain, "model_name", "gemini-3.6-flash"),
             "latency_ms": latency_ms
