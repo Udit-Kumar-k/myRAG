@@ -23,7 +23,6 @@ __pycache__/
 
 # Node/React Frontend
 frontend/node_modules/
-frontend/dist/
 frontend/.env
 frontend/.env.local
 data/eval_set.json

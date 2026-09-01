@@ -77,28 +77,32 @@ class LegalIndexManager:
     def load_embedding_model(self):
         """Lazy loads the embedding model.
         
-        When EMBEDDING_PROVIDER=api  → uses HuggingFace Inference API (free, no GPU needed).
-        When EMBEDDING_PROVIDER=local (default) → loads model locally with GPU when available.
+        When EMBEDDING_PROVIDER=api (default) → uses HuggingFace Inference API (free, no GPU needed).
+        When EMBEDDING_PROVIDER=local        → loads model locally with GPU when available.
         """
         if self.model is None:
-            provider = os.environ.get("EMBEDDING_PROVIDER", "local").lower()
+            provider = os.environ.get("EMBEDDING_PROVIDER", "api").lower()
             if provider == "api":
                 self.model = HFEmbeddingAPI(self.model_name)
             else:
-                import torch
-                device = os.environ.get("EMBEDDING_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
-                print(f"Loading embedding model {self.model_name} on device={device}...")
-                from sentence_transformers import SentenceTransformer
                 try:
-                    self.model = SentenceTransformer(self.model_name, device=device)
-                except Exception as e:
-                    if device == "cuda":
-                        print(f"CUDA initialization failed ({e}). Falling back to CPU...")
-                        self.model = SentenceTransformer(self.model_name, device="cpu")
-                    else:
-                        raise e
-                self.model.max_seq_length = 512
-                print("Model loaded successfully.")
+                    import torch
+                    device = os.environ.get("EMBEDDING_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
+                    print(f"Loading embedding model {self.model_name} on device={device}...")
+                    from sentence_transformers import SentenceTransformer
+                    try:
+                        self.model = SentenceTransformer(self.model_name, device=device)
+                    except Exception as e:
+                        if device == "cuda":
+                            print(f"CUDA initialization failed ({e}). Falling back to CPU...")
+                            self.model = SentenceTransformer(self.model_name, device="cpu")
+                        else:
+                            raise e
+                    self.model.max_seq_length = 512
+                    print("Model loaded successfully.")
+                except (ImportError, Exception) as e:
+                    print(f"Local embedding model unavailable ({e}). Falling back to HuggingFace Inference API...")
+                    self.model = HFEmbeddingAPI(self.model_name)
         return self.model
 
     def build_indexes(self, all_chunks: List[Dict[str, Any]], batch_size: int = 256, force_rebuild: bool = False):

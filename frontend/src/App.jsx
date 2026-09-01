@@ -312,7 +312,7 @@ function App() {
       if (err.name === 'AbortError') return; // user switched tabs — silently discard
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Network error — make sure the FastAPI server is running on port 8001.',
+        content: 'Network error — please check your connection or verify the backend service is running.',
         refused: true,
         confidenceScore: 0,
       }]);
@@ -388,24 +388,21 @@ function App() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      // 1. Try Supabase Anonymous sign-in (creates real guest session with valid JWT)
+      // Try Supabase Anonymous sign-in (creates real guest session with valid JWT)
       const { data, error } = await supabase.auth.signInAnonymously();
-      if (!error && data?.session) {
+      if (error) throw error;
+      if (data?.session) {
         setUser(data.session.user);
         setToken(data.session.access_token);
         return;
       }
+      throw new Error('No session returned');
     } catch (e) {
-      console.warn('Anonymous sign-in not available, using guest profile:', e);
+      console.warn('Anonymous sign-in not available:', e);
+      setAuthError('Guest access unavailable. Please sign in or create a free account.');
+    } finally {
+      setAuthLoading(false);
     }
-    // 2. Fallback guest profile
-    setUser({
-      id: '00000000-0000-0000-0000-000000000000',
-      email: 'guest@nyaybot.local',
-      user_metadata: { full_name: 'Guest User' }
-    });
-    setToken('guest-token');
-    setAuthLoading(false);
   };
 
   const switchAuthMode = (mode) => {
@@ -414,13 +411,13 @@ function App() {
   };
 
   const signOut = async () => {
-    if (token === 'mock-token' || token === 'guest-token') { setUser(null); setToken(null); }
+    if (token === 'guest-token') { setUser(null); setToken(null); }
     else { await supabase.auth.signOut(); }
     setConversations([]); setActiveConvId(''); setMessages([]);
   };
 
   // ── Helpers ─────────────────────────────────────────────
-  const confClass = (s) => s >= 0.8 ? 'high' : s >= 0.65 ? 'medium' : 'low';
+  const confClass = (s) => s >= 0.65 ? 'high' : s >= 0.55 ? 'medium' : 'low';
 
   // ── Auth Gate ───────────────────────────────────────────
   if (!user) {

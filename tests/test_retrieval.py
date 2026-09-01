@@ -44,26 +44,27 @@ class TestRetrievalPipeline(unittest.TestCase):
 
     def test_confidence_gate(self):
         from unittest.mock import patch
-        # We test routing and gating with mocked reranker
-        mock_reranker = MagicMock()
-        self.pipeline.load_reranker = MagicMock(return_value=mock_reranker)
-        self.pipeline.reranker = mock_reranker
-        
-        # Mock search retrieval to return a candidate chunk
-        self.pipeline.retrieve = MagicMock(return_value=[
-            {"text": "Section 103 of BNS prescribes punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}
-        ])
         
         with patch('src.backend.chain.LegalRAGChain.expand_query', side_effect=lambda q: q):
-            # 1. Test query passes confidence gate (high rerank score)
-            mock_reranker.predict.return_value = [2.0] # raw logit, sigmoid(2.0) is approx 0.88 >= 0.65
+            # 1. Test query passes confidence gate (high rerank score >= 0.65)
+            self.pipeline.retrieve = MagicMock(return_value=[
+                {"text": "Section 103 of BNS prescribes punishment for murder.", "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}
+            ])
+            self.pipeline.rerank_with_cohere = MagicMock(return_value=[
+                {"text": "Section 103 of BNS prescribes punishment for murder.", "relevance_score": 0.85, "metadata": {"document_name": "Bharatiya Nyaya Sanhita 2023", "legal_domain": "criminal", "pub_year": 2023, "namespace": "criminal"}}
+            ])
             res = self.pipeline.query("What is the punishment for murder under BNS?")
             self.assertFalse(res["refused"])
             self.assertGreaterEqual(res["confidence_score"], 0.65)
             self.assertEqual(len(res["retrieved_chunks"]), 1)
 
-            # 2. Test query is blocked by confidence gate (low rerank score)
-            mock_reranker.predict.return_value = [-2.0] # raw logit, sigmoid(-2.0) is approx 0.12 < 0.65
+            # 2. Test query is blocked by confidence gate (low rerank score < 0.65)
+            self.pipeline.retrieve = MagicMock(return_value=[
+                {"text": "Unrelated statutory provision.", "metadata": {"document_name": "General Act", "legal_domain": "general", "pub_year": 2000, "namespace": "general"}}
+            ])
+            self.pipeline.rerank_with_cohere = MagicMock(return_value=[
+                {"text": "Unrelated statutory provision.", "relevance_score": 0.25, "metadata": {"document_name": "General Act", "legal_domain": "general", "pub_year": 2000, "namespace": "general"}}
+            ])
             res = self.pipeline.query("Who is the prime minister of France?")
             self.assertTrue(res["refused"])
             self.assertEqual(len(res["retrieved_chunks"]), 0)

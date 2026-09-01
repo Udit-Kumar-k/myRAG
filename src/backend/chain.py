@@ -68,7 +68,7 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
    The mechanism for approaching the District Consumer Disputes Redressal Commission is Section 34 (jurisdiction) and Section 35 (manner of complaint). Section 18 pertains to the Central Authority's inquiry powers. Never cite Section 18 as the path for filing a consumer complaint at District level.
 
 3. Wage Disputes & Final Settlement (Code on Wages, 2019 vs Payment of Wages Act, 1936):
-   - Under Section 17(2) of the Code on Wages, 2019, where an employee is dismissed, retrenched, or resigns, all wages due MUST be paid within two working days of termination.
+   - Under Section 17(4) of the Code on Wages, 2019, where an employee is dismissed, retrenched, or resigns, all wages due MUST be paid within two working days of termination.
    - Under Section 5(2) of the Payment of Wages Act, 1936, wages of a terminated employee must be paid within two working days.
    - Under Section 15 of the Payment of Wages Act, 1936 (and Section 45 of Code on Wages), an employee may file a claims application before the Labour Authority within 12 months for delayed or unpaid wages.
 
