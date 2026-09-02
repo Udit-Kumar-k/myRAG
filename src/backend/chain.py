@@ -98,9 +98,28 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
    - Extortion is strictly governed by Section 308 BNS (which replaced Sections 383/384 IPC).
    - Section 308(1) BNS defines extortion: intentionally putting any person in fear of any injury to that person or another, and thereby dishonestly inducing delivery of property, valuable security, or anything signed/sealed.
    - Section 308(2) BNS: Punishment for extortion is imprisonment of either description for a term which may extend to seven years, or with fine, or with both.
-   - Section 308(4) BNS: Extortion by putting person in fear of death or grievous hurt is punishable with imprisonment up to seven years and fine.
-   - Section 308(5)-(7) BNS cover extortion involving accusations of heinous offences.
-   - NEVER cite Section 305 BNS (which is theft in dwelling house / means of transport) or Section 318 BNS (which is cheating) for extortion.
+   - NEVER cite Section 305 BNS (theft in dwelling) or Section 318 BNS (cheating) for extortion.
+
+8. BNS vs IPC Section Numbering (CRITICAL ANTI-HALLUCINATION MANDATE):
+   - The Bharatiya Nyaya Sanhita, 2023 (BNS) has only 358 sections (Sections 1 to 358). Any section > 358 or with letters (like 354A, 354C, 354D, 498A) DOES NOT EXIST in BNS and is a critical hallucination.
+   - NEVER take an old IPC section number and label it as "BNS".
+   - Key official BNS section mappings:
+     * Stalking (including cyber/online monitoring of email, social media, internet): Section 78 BNS (formerly 354D IPC).
+     * Sexual harassment: Section 75 BNS (formerly 354A IPC).
+     * Voyeurism: Section 77 BNS (formerly 354C IPC).
+     * Outraging modesty of a woman: Section 74 BNS (formerly 354 IPC).
+     * Word, gesture, or act intended to insult modesty of woman: Section 79 BNS (formerly 509 IPC).
+     * Cruelty by husband or relatives: Section 85 & Section 86 BNS (formerly 498A IPC).
+     * Criminal trespass and house-trespass: Section 329 BNS (formerly 441/447 IPC).
+     * Wrongful restraint (blocking passage, locking gates, preventing movement): Section 126 BNS (formerly 339/341 IPC).
+     * Wrongful confinement (trapping inside premises): Section 127 BNS (formerly 340/342 IPC).
+     * Cheating: Section 318 BNS (formerly 415/420 IPC).
+     * Criminal breach of trust: Section 316 BNS (formerly 405/406 IPC).
+     * Defamation: Section 356 BNS (formerly 499/500 IPC).
+     * Criminal intimidation: Section 351 BNS (formerly 503/506 IPC).
+
+9. Grounding Requirement for Criminal Sections:
+   - When citing BNS, BNSS, or BSA sections, verify that the section number corresponds to the actual retrieved statute chunk. Never cite sections not present in the corpus.
 
 OUTPUT COMPLETENESS:
 - Never truncate an answer mid-sentence, mid-section, or mid-word.
@@ -324,6 +343,32 @@ class LegalRAGChain:
         unverified_claims = []
         verified_act_sections = set()  # set of (act_keyword, sec_num)
         verified_section_nums = set()
+
+        # --- CHECK 0: Intercept & Correct Legacy IPC-to-BNS Hallucinations ---
+        ipc_to_bns_corrections = [
+            (r'\b(?:Section|Sec|u/s|s\.)\s*354[Aa]\b(?:\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?))?', "Section 75 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*354[Cc]\b(?:\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?))?', "Section 77 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*354[Dd]\b(?:\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?))?', "Section 78 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*498[Aa]\b(?:\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?))?', "Section 85 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*509\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 79 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*420\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 318 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*441\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 329 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*447\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 329 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*339\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 126 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*341\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 126 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*340\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 127 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*342\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 127 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*383\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 308 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*384\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 308 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*499\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 356 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*500\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 356 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*503\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 351 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+            (r'\b(?:Section|Sec|u/s|s\.)\s*506\b\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?(?:BNS|Bharatiya\s+Nyaya\s+Sanhita(?:,\s*2023)?)', "Section 351 of the Bharatiya Nyaya Sanhita, 2023 (BNS)"),
+        ]
+        for pattern, replacement in ipc_to_bns_corrections:
+            if re.search(pattern, answer, flags=re.IGNORECASE):
+                print(f"[CITATION_AUDIT] Corrected legacy IPC-to-BNS hallucination: {pattern} -> {replacement}")
+                answer = re.sub(pattern, replacement, answer, flags=re.IGNORECASE)
 
         # --- CHECK 1: Act-and-Section Pair Verification ---
         pair_pattern = r'\b(?:Section|Sec|u/s|s\.)\s*(\d+[A-Za-z]?)\s+(?:of\s+the\s+|under\s+the\s+|in\s+the\s+)?([A-Z][A-Za-z0-9\s,\(\)]+?(?:Act|Sanhita|Adhiniyam|Code)(?:,\s*\d{4})?)'
