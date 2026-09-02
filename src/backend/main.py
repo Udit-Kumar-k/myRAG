@@ -21,7 +21,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Import project modules
 from src.backend.indexing import LegalIndexManager

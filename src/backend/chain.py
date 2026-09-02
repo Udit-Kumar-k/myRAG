@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
-load_dotenv()
+load_dotenv(override=True)
 
 SYSTEM_PROMPT = """You are NyayBot, an Indian legal awareness assistant built on a hybrid retrieval pipeline over Indian statutory law.
 
