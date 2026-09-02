@@ -528,15 +528,31 @@ class LegalRAGChain:
         except Exception as e:
             print(f"Primary astream failed ({e}). Attempting fallback streaming...")
             if self.provider == "gemini" and self.groq_key:
-                from langchain_groq import ChatGroq
-                groq_model = os.environ.get("FALLBACK_MODEL", "qwen/qwen3.8-27b")
-                fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=4096)
-                fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
-                async for token in fb_chain.astream(inputs):
-                    if token:
-                        yield token
-            else:
-                raise e
+                try:
+                    from langchain_groq import ChatGroq
+                    groq_model = os.environ.get("FALLBACK_MODEL", "qwen/qwen3.8-27b")
+                    fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=4096)
+                    fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
+                    async for token in fb_chain.astream(inputs):
+                        if token:
+                            yield token
+                    return
+                except Exception as fb_err:
+                    print(f"Groq astream fallback failed: {fb_err}")
+            elif self.provider == "groq" and self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    gemini_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
+                    fb_llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=4096, max_retries=0)
+                    fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
+                    async for token in fb_chain.astream(inputs):
+                        if token:
+                            yield token
+                    return
+                except Exception as fb_err:
+                    print(f"Gemini astream fallback failed: {fb_err}")
+
+            raise e
 
     async def astream_conversational(self, question: str, history: List[Any]):
         """Asynchronously streams conversational / recap responses."""
@@ -574,15 +590,31 @@ You can help with:
                     yield token
         except Exception as e:
             print(f"astream_conversational failed ({e})")
-            if self.groq_key:
-                from langchain_groq import ChatGroq
-                groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
-                fb_chain = conv_prompt | groq_llm | StrOutputParser()
-                async for token in fb_chain.astream({"question": question, "history": history}):
-                    if token:
-                        yield token
-            else:
-                yield "Hi! I'm NyayBot — ask me anything about Indian criminal law, consumer rights, cyber fraud, workplace rights, or property disputes."
+            if self.provider == "gemini" and self.groq_key:
+                try:
+                    from langchain_groq import ChatGroq
+                    groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
+                    fb_chain = conv_prompt | groq_llm | StrOutputParser()
+                    async for token in fb_chain.astream({"question": question, "history": history}):
+                        if token:
+                            yield token
+                    return
+                except Exception as fb_err:
+                    print(f"Groq astream_conversational fallback failed: {fb_err}")
+            elif self.provider == "groq" and self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    gemini_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
+                    fb_llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=4096, max_retries=0)
+                    fb_chain = conv_prompt | fb_llm | StrOutputParser()
+                    async for token in fb_chain.astream({"question": question, "history": history}):
+                        if token:
+                            yield token
+                    return
+                except Exception as fb_err:
+                    print(f"Gemini astream_conversational fallback failed: {fb_err}")
+
+            yield "Hi! I'm NyayBot — ask me anything about Indian criminal law, consumer rights, cyber fraud, workplace rights, or property disputes."
 
     def _init_expansion_llm(self):
         # Deprecated: expansion now uses self._llm (temperature=0.0 globally).
@@ -631,8 +663,8 @@ RULES:
             print(f"[HyDE] Generated passage: {passage[:120].encode('ascii', 'replace').decode('ascii')}...")
             return passage
         except Exception as e:
-            print(f"[HyDE] Primary generation failed ({e}). Attempting Groq fallback...")
-            if self.groq_key:
+            print(f"[HyDE] Primary generation failed ({e}). Attempting fallback...")
+            if self.provider == "gemini" and self.groq_key:
                 try:
                     from langchain_groq import ChatGroq
                     groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
@@ -642,6 +674,17 @@ RULES:
                     return passage
                 except Exception as groq_err:
                     print(f"[HyDE-Groq] Fallback failed: {groq_err}")
+            elif self.provider == "groq" and self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    gemini_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
+                    gem_llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=1024, max_retries=0)
+                    fb_chain = hyde_prompt | gem_llm | StrOutputParser()
+                    passage = fb_chain.invoke({"question": question, "history": hist_val}).strip()
+                    print(f"[HyDE-Gemini] Generated passage: {passage[:120].encode('ascii', 'replace').decode('ascii')}...")
+                    return passage
+                except Exception as gem_err:
+                    print(f"[HyDE-Gemini] Fallback failed: {gem_err}")
 
             print("[HyDE] Falling back to keyword expansion.")
             return self.hyde_fallback_expand_query(question)
@@ -844,8 +887,17 @@ You can help with:
         try:
             return chain.invoke({"question": question, "history": history})
         except Exception as e:
-            print(f"[Conversational] Primary LLM failed ({e}). Attempting Groq fallback...")
-            if self.groq_key:
+            print(f"[Conversational] Primary LLM failed ({e}). Attempting fallback...")
+            if self.provider == "groq" and self.gemini_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    gemini_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
+                    gem_llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=self.gemini_key, temperature=0.0, max_tokens=1024, max_retries=0)
+                    fb_chain = conv_prompt | gem_llm | StrOutputParser()
+                    return fb_chain.invoke({"question": question, "history": history})
+                except Exception as gem_err:
+                    print(f"[Conversational] Gemini fallback failed: {gem_err}")
+            elif self.provider == "gemini" and self.groq_key:
                 try:
                     from langchain_groq import ChatGroq
                     groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
