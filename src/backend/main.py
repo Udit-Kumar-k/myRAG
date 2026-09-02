@@ -651,8 +651,13 @@ async def stream_query(request: Request, req: QueryRequest, uid: str = Depends(a
                 yield f"data: {json.dumps({'token': token, 'done': False})}\n\n"
         except Exception as e:
             print(f"[STREAM_RUN] Generation error: {e}")
-            err_msg = f"LLM generation error: {str(e)}"
-            yield f"data: {json.dumps({'token': f' [{err_msg}]', 'done': False})}\n\n"
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "quota" in err_str:
+                err_msg = "⚠️ **Service Notice:** All AI model providers have temporarily reached their request limits. Please try asking your question again in 1 to 2 minutes."
+            else:
+                err_msg = "⚠️ An unexpected error occurred while processing your legal query. Please retry in a moment."
+            formatted_err = f"\n\n{err_msg}"
+            yield f"data: {json.dumps({'token': formatted_err, 'done': False})}\n\n"
 
         raw_answer = "".join(accumulated)
         verified_answer, _ = rag_chain.verify_citations(raw_answer, retrieved_chunks)
