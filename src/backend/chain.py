@@ -648,6 +648,8 @@ RULES:
 - TOPIC ISOLATION: If the user question is a new legal topic, ignore prior history and write strictly for the new topic.
 - For extortion, blackmail, or demanding money by threats / fear of injury under BNS 2023: explicitly cite Section 308 BNS (extortion, intentionally putting person in fear of injury to deliver property, punishable under Section 308(2) with imprisonment up to seven years or fine or both).
 - For cyber offences / hacking / unauthorized access under the IT Act 2000: explicitly include Section 66 read with Section 43 ("If any person, dishonestly or fraudulently, does any act referred to in section 43 such as unauthorized access, downloading, copying or extracting data, or damaging computer system, punishable under Section 66 with imprisonment up to three years or fine up to five lakh rupees or both").
+- For audio recording, call recording, phone recording, CCTV footage, WhatsApp chat, or electronic evidence admissibility in court: explicitly cite Section 63 of the Bharatiya Sakshya Adhiniyam, 2023 (BSA 2023) (admissibility of electronic records and mandatory Section 63(4) certificate signed by the person in lawful control of the device).
+- For final salary, unpaid wages, delayed settlement, or termination payment timeline: explicitly cite Section 17(2) of the Code on Wages, 2019 (mandating that where an employee has been removed, dismissed, retrenched, or has resigned, wages payable must be paid within two working days).
 - You may invent plausible-sounding section references but keep them reasonable — the passage is ONLY used for semantic retrieval, NOT shown to the user.
 - NEVER cite IPC, CrPC, or Indian Evidence Act (repealed July 2024). Use BNS, BNSS, BSA instead.
 - Do NOT explain your reasoning. Output ONLY the passage itself.
@@ -746,8 +748,7 @@ CRIMINAL & PERSONAL SAFETY:
 - Cheque dishonour, bounced cheque, insufficient funds -> Negotiable Instruments Act dishonour of cheque notice drawer liability. NEVER output BNS or BNSS.
 
 EVIDENCE & PROCEDURE:
-- Recording conversation, is it legal to record someone, admissibility of recording -> BSA electronic record admissibility certificate digital evidence.
-- CCTV footage in court, using video evidence -> BSA electronic record certificate computer output admissible.
+- Audio recording, call recording, phone recording, recording conversation, is it legal to record someone, admissibility of recording, certificate for court proof, CCTV footage in court -> Bharatiya Sakshya Adhiniyam BSA Section 63 certificate electronic record admissibility secondary evidence device in lawful control computer output.
 - Police not registering FIR, complaint not being taken -> BNSS First Information Report cognisable offence duty of officer.
 - Arrested without warrant, police detention rights, not produced before magistrate -> BNSS arrest without warrant grounds of arrest twenty-four hours magistrate.
 

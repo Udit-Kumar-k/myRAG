@@ -31,6 +31,11 @@ CRIMINAL_KEYWORDS = [
     # Verbal abuse / intimidation vocabulary
     "intimidation", "criminal intimidation", "verbal abuse", "verbally abusing",
     "threat", "threatened", "threatening", "blackmail", "blackmailed",
+    # Electronic evidence / court proof vocabulary (Bharatiya Sakshya Adhiniyam, 2023)
+    "audio recording", "call recording", "phone recording", "voice recording",
+    "cctv", "cctv footage", "electronic evidence", "electronic record",
+    "digital evidence", "section 63", "section 65b", "certificate",
+    "admissibility", "admissible in court", "court proof",
 ]
 
 CYBER_KEYWORDS = [
@@ -273,6 +278,12 @@ class LegalRAGPipeline:
             "coast guard",
             "armed forces", "army act", "navy act", "air force act",
             "national security guard",
+            # Obsolete pre-independence colonial revenue / toll / customs statutes that dilute labor/civil law
+            "indian tolls act", "tobacco duty", "bonded warehouse", "shore nuisances",
+            "embankment act", "ghatwali", "straits settlement", "forfeited deposits",
+            "board of revenue", "calcutta land-revenue", "bills of lading act 1856",
+            "improvements in towns act", "rent recovery act, 1853", "fatal accidents act, 1855",
+            "coasting vessels", "boundary-marks", "legal representatives suits act",
         ]
 
         filtered = []
