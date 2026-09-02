@@ -961,9 +961,9 @@ function App() {
               <p>Answers are grounded in Indian statutory law. Queries with insufficient evidence are refused.</p>
               <div className="suggestions">
                 {[
-                  ['BNS',      'What does BNS say about cybercrime?'],
-                  ['CONSUMER', 'I received a defective product and the seller is refusing a refund'],
-                  ['CYBER',    'What are the penalties for hacking under the Information Technology Act?'],
+                  ['CRIMINAL', 'My phone and wallet were stolen while travelling on a bus. When I went to report it, the nearest police station refused to register my complaint, saying the theft happened in another district. Can the police legally refuse to file my FIR?'],
+                  ['BANKING',  'A client gave me a cheque of ₹2,00,000 for work done, but the bank returned it marked \'funds insufficient\'. He has blocked my number and refused to pay. What are the exact legal steps and deadlines to take him to court?'],
+                  ['CONSUMER', 'I ordered a branded smartwatch online, but the seller delivered a cheap counterfeit duplicate. When I asked for a return, the platform refused my refund, claiming their 7-day return policy had expired. How can I file a case against them to get my money back?'],
                 ].map(([tag, text]) => (
                   <button
                     key={tag}

@@ -400,21 +400,22 @@ body {
 .suggestions {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
-  max-width: 420px;
+  max-width: 620px;
 }
 
 .suggestion-btn {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
   background: var(--bg-1);
   border: 1px solid var(--border);
   color: var(--text-1);
   font-family: var(--font);
   font-size: 12.5px;
+  line-height: 1.45;
   text-align: left;
   cursor: pointer;
   transition: var(--trans);
@@ -433,10 +434,11 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-2);
-  padding: 2px 5px;
+  padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   flex-shrink: 0;
+  margin-top: 1px;
 }
 
 /* ─── Messages ───────────────────────────────────────── */
