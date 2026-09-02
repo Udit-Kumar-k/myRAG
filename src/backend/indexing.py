@@ -22,33 +22,53 @@ class HFEmbeddingAPI:
     the pooled sentence embedding (same pooling as SentenceTransformer),
     so the existing FAISS index built with local BGE-M3 stays valid.
 
-    Set EMBEDDING_PROVIDER=api to activate this for free-tier deployment.
+    If HF Inference API times out or is unreachable, it automatically
+    falls back to a local SentenceTransformer model if available.
     """
     def __init__(self, model_name: str = "BAAI/bge-m3"):
         self.model_name = model_name
-        token = os.environ.get("HF_TOKEN", "")
+        token = os.environ.get("HF_TOKEN", "").strip() or None
         from huggingface_hub import InferenceClient
-        self._client = InferenceClient(token=token)
-        print(f"HF Inference API client ready for {model_name}")
+        self._client = InferenceClient(token=token, timeout=60)
+        self._local_fallback = None
+        print(f"HF Inference API client ready for {model_name} (timeout: 60s)")
+
+    def _get_local_model(self):
+        if self._local_fallback is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                print(f"[EMBEDDING FALLBACK] Loading local SentenceTransformer ({self.model_name})...")
+                self._local_fallback = SentenceTransformer(self.model_name, device="cpu")
+                self._local_fallback.max_seq_length = 512
+            except Exception as e:
+                print(f"[EMBEDDING FALLBACK] Could not load local model: {e}")
+        return self._local_fallback
 
     def encode(self, texts, normalize_embeddings: bool = False, batch_size: int = 8, **kwargs) -> np.ndarray:
-        """Encode texts via HF Inference API. Returns (N, dim) float32 array."""
+        """Encode texts via HF Inference API with automatic local fallback."""
         if isinstance(texts, str):
             texts = [texts]
 
-        all_embs = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            # InferenceClient returns np.ndarray of shape (n_texts, embedding_dim)
-            # for sentence-transformer style models when called with a list.
-            embs = self._client.feature_extraction(batch, model=self.model_name)
-            all_embs.append(np.array(embs, dtype="float32"))
+        try:
+            all_embs = []
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i : i + batch_size]
+                embs = self._client.feature_extraction(batch, model=self.model_name)
+                all_embs.append(np.array(embs, dtype="float32"))
 
-        result = np.vstack(all_embs)  # (N, dim)
-        if normalize_embeddings:
-            norms = np.linalg.norm(result, axis=1, keepdims=True)
-            result = result / np.maximum(norms, 1e-9)
-        return result
+            result = np.vstack(all_embs)  # (N, dim)
+            if normalize_embeddings:
+                norms = np.linalg.norm(result, axis=1, keepdims=True)
+                result = result / np.maximum(norms, 1e-9)
+            return result
+        except Exception as e:
+            print(f"[HF_EMBEDDING_API ERROR] {e}. Attempting local model fallback...")
+            local_model = self._get_local_model()
+            if local_model is not None:
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs.pop("show_progress_bar", None)
+                return local_model.encode(texts, normalize_embeddings=normalize_embeddings, show_progress_bar=False, **fallback_kwargs)
+            raise e
 
     # Compatibility shim: SentenceTransformer exposes max_seq_length
     @property
@@ -62,6 +82,11 @@ class HFEmbeddingAPI:
 
 class LegalIndexManager:
     def __init__(self, index_dir: str = "data/indexes", model_name: str = "BAAI/bge-m3"):
+        # Resolve index_dir relative to current working directory or package root
+        if not os.path.exists(index_dir):
+            alt_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data", "indexes")
+            if os.path.exists(alt_dir):
+                index_dir = os.path.abspath(alt_dir)
         self.index_dir = index_dir
         self.model_name = model_name
         self.namespaces = ["criminal", "cyber", "consumer", "banking", "general"]

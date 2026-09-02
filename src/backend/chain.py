@@ -21,8 +21,11 @@ You will be given:
 2. CONVERSATION HISTORY — all prior turns this session
 3. USER QUERY — current question or situation
 
-CONVERSATION MEMORY:
-Use conversation history to resolve pronouns and topic carryover — "it", "that section", "what about its punishment", "the same offence". Never ask the user to repeat something already established.
+CONVERSATION MEMORY & TOPIC ISOLATION MANDATE:
+- Use conversation history SOLELY to resolve referential follow-ups on the SAME scenario — "it", "that section", "what about its punishment", "is it bailable".
+- When the user asks about a NEW or DISTINCT legal scenario (e.g. cheque bounce under NI Act, stalking/extortion under BNS, consumer refund, or cyber fraud), completely isolate the response to the new scenario.
+- COMMON SENSE RELEVANCE: NEVER mention facts, damages, or remedies from previous queries (such as hotel bookings, flight cancellations, salary arrears, or tenancy deposits) when answering a new scenario. If an earlier concept is not part of the current question, DO NOT mention it under any circumstance.
+- Never ask the user to repeat something already established.
 
 LEGISLATION CURRENCY:
 IPC, CrPC, Indian Evidence Act are repealed July 1 2024.
@@ -30,35 +33,36 @@ If user references a repealed section, map to the corresponding BNS/BNSS/BSA sec
 Example: "IPC Section 302 is now BNS Section 103. Under BNS Section 103..."
 Never cite repealed legislation as currently applicable.
 
-QUERY HANDLING:
+QUERY HANDLING & LEGAL COMMON SENSE:
 Conceptual queries — user asks what a law means:
-- Retrieve relevant chunk
-- Explain in plain language
-- Cite exact act and section number
+- Explain in plain, authoritative language using the retrieved statutory chunk.
+- Cite exact act and section number from the context.
 
 Situation queries — user describes a real scenario:
-- Identify which act and section applies
-- Explain what the law says about their situation
-- State what legal remedy exists under that section
+- Identify which act and section applies based on the retrieved chunks.
+- Explain what the law says about their situation clearly and practically.
+- State actionable legal steps (e.g. filing an FIR under Section 173 BNSS, filing on cybercrime.gov.in, approaching the District Consumer Commission under Section 35 CPA 2019, or serving a 15-day demand notice under Section 138 NI Act).
 
 Cross-namespace queries — situation spans multiple domains (e.g. online fraud → IT Act + BNS both apply):
-- Retrieve from all relevant namespaces
-- Synthesize into one coherent answer
+- Retrieve from all relevant namespaces and synthesize into one coherent, practical answer.
 
 MISCONCEPTION CORRECTION:
-If user's question contains a legally incorrect premise, correct it directly before answering.
+If user's question contains a legally incorrect premise, correct it directly before answering:
 "That is incorrect. [Correct statement]. Here is what the law actually says..."
 
-GROUNDING AND REFUSAL:
-- Every answer must come strictly from retrieved chunks
-- Always cite: act name + section number as present in the retrieved chunks
+GROUNDING, CLARITY & REFUSAL:
+- All statutory citations, section numbers, offences, and penalties MUST be strictly grounded in the retrieved context chunks.
+- Never hallucinate non-existent sections or invent statutory provisions.
+- DO NOT BABBLE ROBOTIC DISCLAIMERS. NEVER use phrases like:
+  * "The retrieved legal corpus does not contain..."
+  * "The provided chunks do not cover..."
+  * "Based strictly on the provided chunks..."
+  * "Since Act X is not present in the retrieved chunks, I cannot tell you..."
+  Instead, provide clear, direct legal awareness based on the law retrieved.
+- If no retrieved chunk clears the minimum confidence threshold:
+  "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
 - Do NOT cite state-specific amendments (e.g. Telangana Amendment, AP Amendment) or local acts UNLESS they appear explicitly in the retrieved context chunks.
 - Verify basic mathematical logic (e.g., dividing property equally among N legal heirs yields N equal shares, not N+1 shares).
-- If a prior user question in conversation history was left unanswered or refused by the system, do NOT re-answer it in a subsequent turn unless the user explicitly asks it again. Never use training memory to fill in what the corpus declined to answer.
-- If no chunk clears confidence threshold:
-  "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
-- Never answer from training memory alone
-- Never hallucinate section numbers
 
 PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
 1. OTP/credential/password fraud (phishing, SIM-swap, unauthorised use of authentication features):
@@ -90,6 +94,14 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
    - Under Section 63 of Bharatiya Sakshya Adhiniyam, 2023 (which replaced Section 65B of Indian Evidence Act), secondary electronic records (phone audio recordings, CCTV footage, emails, WhatsApp exports) require a mandatory Section 63 Certificate signed by the person in lawful control/charge of the device or an authorized expert to be admissible in court.
    - Preserving original devices, hash/metadata, and unedited master files is essential for chain of custody.
 
+7. Extortion under Bharatiya Nyaya Sanhita, 2023 (BNS):
+   - Extortion is strictly governed by Section 308 BNS (which replaced Sections 383/384 IPC).
+   - Section 308(1) BNS defines extortion: intentionally putting any person in fear of any injury to that person or another, and thereby dishonestly inducing delivery of property, valuable security, or anything signed/sealed.
+   - Section 308(2) BNS: Punishment for extortion is imprisonment of either description for a term which may extend to seven years, or with fine, or with both.
+   - Section 308(4) BNS: Extortion by putting person in fear of death or grievous hurt is punishable with imprisonment up to seven years and fine.
+   - Section 308(5)-(7) BNS cover extortion involving accusations of heinous offences.
+   - NEVER cite Section 305 BNS (which is theft in dwelling house / means of transport) or Section 318 BNS (which is cheating) for extortion.
+
 OUTPUT COMPLETENESS:
 - Never truncate an answer mid-sentence, mid-section, or mid-word.
 - If listing punishments or remedies across multiple BNS/BNSS/BSA sections, complete every section's explanation before ending.
@@ -108,9 +120,13 @@ Retrieved Legal Corpus Context:
 def format_context(chunks: List[Dict[str, Any]]) -> str:
     """Formats retrieved chunks for LLM consumption.
 
-    Passes top 5 chunks at up to 1200 chars each (~6 KB of context) to give
-    multi-act queries (e.g. BSA + BNS + BNSS spanning evidence, arrest, and
-    procedure) enough material to produce a complete answer without truncation.
+    Passes top 5 chunks at up to 1600 chars each (~8 KB total context) to keep
+    the prompt comfortably within free-tier TPM limits (e.g. Groq 8000 TPM)
+    while providing complete statutory text.
+
+    If a chunk contains an operative section header (e.g. Section 308, Section 66, Section 43)
+    starting deeper in a bundled document, it anchors the window to the section
+    boundary so critical statutory penalties are never cut off by prefix boilerplate.
     """
     if not chunks:
         return "No relevant context found."
@@ -119,8 +135,24 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
     for i, chunk in enumerate(chunks[:5]):
         meta = chunk.get("metadata", {})
         text = chunk.get("text", "").strip()
-        if len(text) > 1200:
-            text = text[:1200] + "..."
+        if len(text) > 1600:
+            markers = [
+                "\n**308.", "\n308.", "308. Extortion", "_Of extortion_", "**308.",
+                "\n**66.", "\n66.", "66. Computer", "**1[66.",
+                "\n**43.", "\n43.", "**43.",
+                "\n**", "\nSection "
+            ]
+            shifted = False
+            for m in markers:
+                pos = text.find(m)
+                if pos != -1 and pos > 300:
+                    focused = text[pos:].strip()
+                    text = (focused[:1600] + "...") if len(focused) > 1600 else focused
+                    shifted = True
+                    break
+            if not shifted:
+                text = text[:1600] + "..."
+
         formatted.append(
             f"Source [{i+1}]: {meta.get('act_name', meta.get('document_name', 'Unknown'))}\n"
             f"Legal Domain: {meta.get('namespace', 'Unknown')}\n"
@@ -433,9 +465,9 @@ class LegalRAGChain:
         # Kept as a no-op so any external callers don't break.
         self._init_llm()
 
-    def hyde_expand_query(self, question: str) -> str:
+    def hyde_expand_query(self, question: str, history: Optional[List[Any]] = None) -> str:
         """
-        HyDE — Hypothetical Document Embedding.
+        HyDE — Hypothetical Document Embedding (Context-Aware).
 
         Instead of converting the query into a keyword list, we ask the LLM to write a
         short plausible passage from an Indian statute that *would* answer the question.
@@ -443,37 +475,35 @@ class LegalRAGChain:
         headers, legal terms), so cosine similarity finds the right chunks directly —
         without any manually coded domain routing rules.
 
-        Example:
-          User: "my boss is verbally abusing me and making me work overtime"
-          HyDE output:
-            "Under the Code on Wages, 2019, Section 14, no employer shall require any
-             worker to work beyond the hours prescribed without paying overtime wages at
-             twice the ordinary rate. Under BNS Section 351, whoever commits criminal
-             intimidation — including an employer who threatens an employee — shall be
-             punished with imprisonment."
-
-        The expanded text is only used as the embedding input; it is NEVER shown to the
-        user and NEVER used as the answer.
+        If history is provided and the question is a referential follow-up (e.g.
+        'what is the punishment for that?'), it resolves the reference against the
+        prior turn and generates the passage for that specific offense.
         """
         self._init_llm()
 
         hyde_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an Indian statutory law expert. A user will describe a legal situation.
+            ("system", """You are an Indian statutory law expert. A user will describe a legal situation or question.
 Write a SHORT passage (3-6 sentences) that reads like an excerpt from an actual Indian statute or legal commentary that would DIRECTLY answer their situation.
 
 RULES:
 - Use proper Act names: BNS 2023, BNSS 2023, BSA 2023, Consumer Protection Act 2019, IT Act 2000, Code on Wages 2019, Payment of Wages Act 1936, Transfer of Property Act, Negotiable Instruments Act, Protection of Women from Domestic Violence Act, Hindu Succession Act, POCSO Act, Prevention of Corruption Act, RERA, etc.
 - Use formal legal vocabulary (lessee, lessor, employer, employee, aggrieved person, cognisable offence, dishonour, etc.)
+- CONTEXT RESOLUTION: If conversation history is provided and the user's question is a follow-up referring to earlier turns (e.g. 'what is the punishment for that?', 'is it bailable?'), resolve the reference against the prior turn and write the statutory passage for that specific offense/remedy.
+- TOPIC ISOLATION: If the user question is a new legal topic, ignore prior history and write strictly for the new topic.
+- For extortion, blackmail, or demanding money by threats / fear of injury under BNS 2023: explicitly cite Section 308 BNS (extortion, intentionally putting person in fear of injury to deliver property, punishable under Section 308(2) with imprisonment up to seven years or fine or both).
+- For cyber offences / hacking / unauthorized access under the IT Act 2000: explicitly include Section 66 read with Section 43 ("If any person, dishonestly or fraudulently, does any act referred to in section 43 such as unauthorized access, downloading, copying or extracting data, or damaging computer system, punishable under Section 66 with imprisonment up to three years or fine up to five lakh rupees or both").
 - You may invent plausible-sounding section references but keep them reasonable — the passage is ONLY used for semantic retrieval, NOT shown to the user.
 - NEVER cite IPC, CrPC, or Indian Evidence Act (repealed July 2024). Use BNS, BNSS, BSA instead.
 - Do NOT explain your reasoning. Output ONLY the passage itself.
 - Keep it under 100 words."""),
+            MessagesPlaceholder(variable_name="history", optional=True),
             ("human", "{question}"),
         ])
 
         chain = hyde_prompt | self._llm | StrOutputParser()
+        hist_val = history or []
         try:
-            passage = chain.invoke({"question": question}).strip()
+            passage = chain.invoke({"question": question, "history": hist_val}).strip()
             print(f"[HyDE] Generated passage: {passage[:120].encode('ascii', 'replace').decode('ascii')}...")
             return passage
         except Exception as e:
@@ -483,7 +513,7 @@ RULES:
                     from langchain_groq import ChatGroq
                     groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
                     fb_chain = hyde_prompt | groq_llm | StrOutputParser()
-                    passage = fb_chain.invoke({"question": question}).strip()
+                    passage = fb_chain.invoke({"question": question, "history": hist_val}).strip()
                     print(f"[HyDE-Groq] Generated passage: {passage[:120].encode('ascii', 'replace').decode('ascii')}...")
                     return passage
                 except Exception as groq_err:
@@ -537,12 +567,12 @@ CYBER & DIGITAL:
 - OTP theft, SIM swap, phishing link, clicked fake link lost money -> IT Act identity theft cheating by personation computer resource electronic communication cyber fraud.
 - Morphed photos, fake social media profile, someone posting edited images of me -> IT Act violation of privacy BNS defamation fake profile impersonation.
 - Cyberbullying, online harassment, threatening messages online -> BNS criminal intimidation IT Act electronic communication harassment.
-- Hacking, unauthorised access, data breach, someone accessed my accounts -> IT Act unauthorised access computer resource data breach.
+- Hacking, unauthorised access, data breach, someone accessed my accounts -> IT Act section 66 section 43 computer related offences dishonestly or fraudulently does any act referred to in section 43 penalty compensation damage to computer system unauthorised access downloading copying data imprisonment up to three years fine up to five lakh rupees.
 - Ransomware, device locked by attacker, demanded payment to unlock -> IT Act computer contaminant virus ransomware extortion.
 
 CRIMINAL & PERSONAL SAFETY:
 - Stalking, being followed, someone watching my house, harassing calls -> BNS stalking criminal intimidation harassment.
-- Extortion, blackmail, threatened to leak photos or videos unless paid -> BNS extortion criminal intimidation wrongful restraint.
+- Extortion, blackmail, threatened to leak photos or videos unless paid -> BNS Section 308 extortion intentionally putting in fear of injury dishonestly inducing delivery of property valuable security punishment imprisonment up to seven years fine Section 308 BNS.
 - Bribery, government official asking for money, corruption -> Prevention of Corruption Act public servant demand gratification bribe.
 - Hit and run, car hit pedestrian and fled, road accident death -> BNS rash negligent driving death fleeing scene accident.
 - Physical assault, someone hit me, grievous hurt -> BNS assault hurt grievous hurt.
@@ -640,16 +670,16 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
             print("All query expansions failed. Falling back to original query.")
             return question
 
-    def expand_query(self, question: str) -> str:
+    def expand_query(self, question: str, history: Optional[List[Any]] = None) -> str:
         """
         Public entry point for query expansion — called by retrieval.py.
 
         Routes through HyDE (Hypothetical Document Embedding): generates a short
         plausible statutory passage so cosine similarity finds the right chunks
-        directly.  hyde_expand_query() already calls hyde_fallback_expand_query()
-        internally on any generation failure, so no separate fallback is needed here.
+        directly. If conversation history is provided, HyDE uses it to resolve
+        referential follow-up questions.
         """
-        return self.hyde_expand_query(question)
+        return self.hyde_expand_query(question, history=history)
 
     def handle_conversational(self, question: str, history: List[Any]) -> str:
         """
@@ -668,6 +698,10 @@ When a user sends a greeting, casual message, or asks about what you can do:
 - Mention your purpose: answering legal questions grounded in Indian statutory law
 - Suggest what kind of questions you can help with (criminal law, consumer rights, cyber law, workplace rights, property disputes, etc.)
 - Do NOT refuse or say "insufficient information" for casual messages. Do NOT say "consult a lawyer" for greetings.
+
+When a user asks what happened in the chat, what was discussed, or asks for a recap/summary of the conversation:
+- Review the conversation history and provide a concise, structured summary listing the key legal situations and statutory provisions covered in this session.
+- If there are NO prior messages in the conversation history, say: "This is a new conversation with no prior legal topics discussed yet. Feel free to ask any question about Indian law!"
 
 You can help with:
 - Rights when arrested (BNS, BNSS)
@@ -696,15 +730,74 @@ You can help with:
             return "Hi! I'm NyayBot — I can answer legal questions grounded in Indian statutory law. Ask me about criminal law, consumer rights, cyber fraud, workplace issues, or property disputes."
 
     @staticmethod
-    def is_conversational(question: str) -> bool:
+    def detect_query_intent(question: str, has_prior_history: bool = False) -> str:
         """
-        Fast zero-cost heuristic to detect greetings and non-legal conversational queries.
-        Returns True if the query should bypass RAG and go to handle_conversational().
-
-        Keeps the RAG pipeline reserved for substantive legal queries only.
+        Classifies incoming user question into intent category:
+        - 'SESSION_RECAP': user asking what was discussed, what happened, or asking for a recap
+        - 'CONVERSATIONAL': greetings, chitchat, bot capabilities
+        - 'FOLLOW_UP': referential question referring to immediate previous turn
+        - 'LEGAL_QUERY': substantive legal question/scenario
         """
         import re
         q = question.strip().lower()
+
+        # 1. Session recap / summary
+        if re.search(
+            r'\b(what\s+happened\s+in\s+this\s+(chat|conversation|session)|'
+            r'what\s+(did|have)\s+we\s+(discuss|talk|cover|said)\b|'
+            r'summar(y|ize|ise)|'
+            r'recap|'
+            r'what\s+was\s+this\s+(chat|conversation)\s+about|'
+            r'everything\s+we\s+discussed|topics\s+we\s+covered)\b',
+            q
+        ):
+            return 'SESSION_RECAP'
+
+        # 2. Pure greetings, casual chitchat, bot capabilities
+        words = set(re.findall(r'\b\w+\b', q))
+        if len(words) <= 3 and words.issubset({
+            'hi', 'hello', 'hey', 'hiya', 'howdy', 'thanks', 'ok', 'okay',
+            'bye', 'goodbye', 'great', 'cool', 'nice', 'sure', 'noted',
+            'understood', 'namaste', 'namaskar', 'alright', 'wow',
+            'good', 'morning', 'evening', 'afternoon', 'night', 'thank', 'you'
+        }) and '?' not in q:
+            return 'CONVERSATIONAL'
+
+        if re.search(
+            r'\b(what can you (do|help|answer)|what (do|can) you know|'
+            r'tell me about yourself|who are you|are you (a )?bot|'
+            r'what are you|what is nyaybot|how does this work)\b',
+            q
+        ):
+            return 'CONVERSATIONAL'
+
+        # 3. Follow-up / referential question
+        if has_prior_history:
+            if re.search(
+                r'^\s*(what\s+about\s+(it|that|this|them|those|the\s+same)\b|'
+                r'what\s+is\s+its\s+\w+|what\s+are\s+its\s+\w+|'
+                r'and\s+the\s+\w+\s+(for|of|in|on)\s+(it|that|this|them)\b|'
+                r'what\s+if\b|can\s+they\s+also\b|is\s+it\s+(bailable|cognizable|compoundable)\b|'
+                r'what\s+is\s+the\s+punishment\s+for\s+(that|this|it)\b|'
+                r'how\s+to\s+apply\s+for\s+(it|that)\b|where\s+do\s+i\s+file\s+(it|that)\b|'
+                r'in\s+(this|that)\s+case|you\s+(mentioned|said)|'
+                r'explain\s+(that|further|more|in\s+simple)|be\s+more\s+clear|'
+                r'what\s+does\s+that\s+mean)\b',
+                q
+            ):
+                return 'FOLLOW_UP'
+
+        return 'LEGAL_QUERY'
+
+    @staticmethod
+    def is_conversational(question: str) -> bool:
+        """
+        Fast zero-cost heuristic to detect greetings, non-legal conversational queries,
+        and conversation recap requests.
+        Returns True if the query should bypass RAG and go to handle_conversational().
+        """
+        return LegalRAGChain.detect_query_intent(question) in ('SESSION_RECAP', 'CONVERSATIONAL')
+
         # Very short messages (<=3 words) without a question mark
         if len(q.split()) <= 3 and '?' not in q:
             # Subset check: all words in the query must be pure greeting vocabulary.

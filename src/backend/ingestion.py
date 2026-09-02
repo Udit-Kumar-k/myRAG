@@ -41,9 +41,9 @@ def is_repealed(act_name: str) -> bool:
 
 # ── PDF chunking — zone-based extraction for Telangana Police format PDFs ────
 
-# Section boundary: line starts with 1-3 digit number, optional capital letter
-# (e.g. "34A"), a period, then a space.  Tested against all three PDFs.
-SECTION_RE = re.compile(r'^(\d{1,3}[A-Z]?)\.\s', re.MULTILINE)
+# Section boundary: line starts with optional markdown asterisks/brackets,
+# 1-3 digit number, optional capital letter (e.g. "34A", "**308. ", "**1[66. "), a period, then a space.
+SECTION_RE = re.compile(r'^(?:\*\*)?(?:\[?\d+\]?)?(\d{1,3}[A-Z]?)\.\s', re.MULTILINE)
 
 # Schedule markers per act (used to find end of Zone 3)
 _SCHEDULE_MARKERS: Dict[str, str] = {
@@ -316,6 +316,28 @@ def _split_sections(zone3_text: str) -> List[str]:
             chunks.extend(_sub_chunk(chunk_text))
         else:
             chunks.append(chunk_text)
+
+    # ── Pass 4: IT Act Section 66 + Section 43 cross-reference merging ───────
+    # Section 66 criminalizes "any act referred to in section 43" (hacking, unauthorized
+    # access, data theft, damage). Without Section 43's text, Section 66 is legally
+    # incomplete and lacks the statutory definition of the offenses it penalizes.
+    # Attach Section 43's operative text to the Section 66 chunk so both the definition
+    # and the criminal penalty travel together in the same chunk.
+    sec43_text = ""
+    for c in chunks:
+        if ("43." in c or "**43." in c) and ("damage to computer" in c.lower() or "penalty and compensation" in c.lower()):
+            idx43 = c.find("**43.") if "**43." in c else c.find("43.")
+            sec43_text = c[idx43:] if idx43 != -1 else c
+            break
+
+    if sec43_text:
+        updated_chunks = []
+        for c in chunks:
+            if ("66." in c or "**1[66." in c) and ("computer related offences" in c.lower() or "act referred to in section 43" in c.lower()):
+                if "[Cross-Reference Section 43" not in c:
+                    c = f"{c}\n\n[Cross-Reference Section 43: Acts constituting unauthorized access and computer damage]:\n{sec43_text}"
+            updated_chunks.append(c)
+        chunks = updated_chunks
 
     return chunks
 

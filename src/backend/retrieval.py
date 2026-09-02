@@ -2,7 +2,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from dotenv import load_dotenv
 import numpy as np
-from typing import List, Dict, Any, Tuple, Union
+from typing import List, Dict, Any, Tuple, Union, Optional
 from src.backend.indexing import LegalIndexManager, tokenize_for_bm25
 
 load_dotenv()
@@ -197,17 +197,14 @@ class LegalRAGPipeline:
                 chunk = dict(candidates[item.index])
                 co_score = float(item.relevance_score)
                 chunk["cohere_score"] = co_score
-                # Map Cohere relevance score into the pipeline confidence scale:
-                #   co_score >= 0.10 → linear mapping into [0.56, 0.95] (above gate)
-                #   co_score  < 0.10 → cap at 0.44 (strictly below 0.55 gate)
-                # Critically: pre-reranking FAISS score is NOT used as a floor when
-                # Cohere says the chunk is a weak match.  A Cohere score of 0.02
-                # should not be overridden by a FAISS score of 0.72 — that defeats
-                # the entire purpose of cross-encoder reranking.
-                if co_score >= 0.10:
-                    scaled_score = min(0.95, 0.50 + co_score * 0.60)
+                # Conservative calibration of Cohere cross-encoder scores:
+                #   co_score >= 0.15 → smooth linear mapping into [0.58, 0.95]
+                #                      (reaches 0.70+ green threshold at raw co_score ~0.43)
+                #   co_score  < 0.15 → capped at <= 0.44 (strictly below 0.55 gate, low/red)
+                if co_score >= 0.15:
+                    scaled_score = min(0.95, 0.52 + co_score * 0.42)
                 else:
-                    scaled_score = min(0.44, co_score * 3)
+                    scaled_score = min(0.44, co_score * 2.5)
                 chunk["relevance_score"] = float(scaled_score)
                 reranked.append(chunk)
 
@@ -448,7 +445,7 @@ class LegalRAGPipeline:
                 
         return text[start_idx : start_idx + max_chars]
 
-    def query(self, query_text: str, conversation_id: str = "") -> Dict[str, Any]:
+    def query(self, query_text: str, conversation_id: str = "", history: Optional[List[Any]] = None) -> Dict[str, Any]:
         """
         Runs the full retrieval pipeline including routing, dual search,
         RRF merge, cross-encoder reranking, and confidence threshold gate.
@@ -475,19 +472,41 @@ class LegalRAGPipeline:
             api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("GEMINI_API_KEY")
             if api_key:
                 chain = LegalRAGChain()
-                expanded_query = chain.expand_query(query_text)
+                expanded_query = chain.expand_query(query_text, history=history)
                 print(f"Original query: {query_text.encode('ascii', 'replace').decode('ascii')}")
                 print(f"Expanded query: {expanded_query.encode('ascii', 'replace').decode('ascii')}")
         except Exception as e:
             print(f"Query expansion failed or skipped: {e}")
 
-        # Step 2: Domain Routing (uses both user input and HyDE expanded legal terms for smart scoping)
-        combined_routing_query = f"{query_text} {expanded_query}"
-        namespace = route_query(combined_routing_query)
+        # Step 2: Domain Routing
+        # The user's explicit query has highest priority.
+        # If the user query is multi-domain (e.g. mentions BNS from criminal AND cybercrime from cyber),
+        # keep 'all' so chunks from both acts are retrieved and synthesized.
+        user_namespace = route_query(query_text)
+        if user_namespace != "all":
+            namespace = user_namespace
+        else:
+            # Check if user query has explicit keywords in multiple legal domains
+            q_lower = query_text.lower()
+            q_words = set(re.findall(r"\b\w+\b", q_lower))
+            has_criminal = any(k in q_words for k in ["bns", "bnss", "bsa", "crime", "criminal", "murder", "theft", "fir", "police", "bail"])
+            has_cyber = any((k in q_lower if " " in k else k in q_words) for k in ["cyber", "cybercrime", "cyber crime", "hack", "hacking", "phishing", "online", "otp", "link"])
+            has_consumer = any(k in q_words for k in ["consumer", "refund", "warranty", "defective", "landlord", "deposit"])
+            has_banking = any(k in q_words for k in ["bank", "banking", "rbi", "cheque", "loan", "upi"])
+            has_civil = any(k in q_words for k in ["salary", "wages", "employer", "employee", "termination", "will", "inheritance"])
+            
+            multi_domain_hit = sum([has_criminal, has_cyber, has_consumer, has_banking, has_civil]) >= 2
+            if multi_domain_hit:
+                namespace = "all"
+            else:
+                # Ambiguous / colloquial phrasing with 0 keyword hits (e.g. "someone took my stuff"):
+                # Use HyDE expansion to classify the domain.
+                combined_routing_query = f"{query_text} {expanded_query}"
+                namespace = route_query(combined_routing_query)
         print(f"[ROUTER] Routed query to namespace: '{namespace}'")
 
-        # Step 3: Dual Retrieval and RRF Merge (top 10 candidate set)
-        candidates = self.retrieve(expanded_query, target_namespace=namespace, top_n=10)
+        # Step 3: Dual Retrieval and RRF Merge (top 20 candidate set for reranking)
+        candidates = self.retrieve(expanded_query, target_namespace=namespace, top_n=20)
         
         if not candidates:
             return {

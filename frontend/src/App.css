@@ -726,10 +726,12 @@ body {
 .citation-score {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-2);
   white-space: nowrap;
   font-family: var(--font-mono);
 }
+.citation-score.high   { color: var(--green); }
+.citation-score.medium { color: var(--amber); }
+.citation-score.low    { color: var(--red); }
 
 /* ─── Confidence Bar ──────────────────────────────────── */
 .confidence-block {

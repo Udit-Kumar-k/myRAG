@@ -108,47 +108,119 @@ function App() {
     }
   };
 
+  const initializedUserRef = useRef(null);
+
   // ── Auth ────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) { setUser(session.user); setToken(session.access_token); }
+      if (session) {
+        setUser(prev => (prev?.id === session.user.id ? prev : session.user));
+        setToken(session.access_token);
+      }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
-        setUser(session.user);
+        setUser(prev => (prev?.id === session.user.id ? prev : session.user));
         setToken(session.access_token);
-        // Only initialize a new session on a genuine sign-in event, not on
-        // TOKEN_REFRESHED (which fires every hour mid-session) — this was the
-        // root cause of glitches with Google OAuth where each token refresh
-        // was calling startNew() and wiping the current conversation.
-        if (event === 'SIGNED_IN') {
-          // handled via the user effect below
-        }
       } else {
-        setUser(null); setToken(null);
+        setUser(null);
+        setToken(null);
+        initializedUserRef.current = null;
       }
     });
     return () => subscription?.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      // Clean any OAuth redirect hash/params from the URL
-      if (window.location.hash || window.location.search) {
-        window.history.replaceState(null, '', window.location.pathname);
+  const loadHistoryFor = async (id, authToken) => {
+    const t = authToken || token;
+    if (!id || !t) return;
+    setLoading(true);
+    try {
+      const r = await fetchWithTimeout(`${API_BASE_URL}/history/${id}`, {
+        headers: { Authorization: `Bearer ${t}` }
+      }, 10000);
+      if (r.status === 401 && t !== 'guest-token') {
+        await supabase.auth.signOut();
+        return;
       }
-      // Push a sentinel state and lock the back button while logged in
-      window.history.pushState({ nyaybot: true }, '', window.location.pathname);
-      const handlePopState = () => {
-        // Always push forward — prevents navigating away while authenticated
-        window.history.pushState({ nyaybot: true }, '', window.location.pathname);
-      };
-      window.addEventListener('popstate', handlePopState);
-      checkHealth();
-      startNew();
-      return () => window.removeEventListener('popstate', handlePopState);
+      if (r.ok) {
+        const { history } = await r.json();
+        if (!Array.isArray(history)) { setMessages([]); return; }
+        const msgs = [];
+        history.forEach(item => {
+          if (item.question || (item.role === 'user' && item.content)) {
+            msgs.push({ role: 'user', content: item.question || item.content });
+          }
+          if (item.answer || (item.role === 'assistant' && item.content)) {
+            msgs.push({
+              role: 'assistant',
+              content: item.answer || item.content,
+              sources: item.sources,
+              confidenceScore: item.confidence_score,
+              refused: item.refused,
+            });
+          }
+        });
+        setMessages(msgs);
+      } else {
+        setMessages([]);
+      }
+    } catch {
+      setMessages([]);
+    } finally {
+      setLoading(false);
     }
-  }, [user]);
+  };
+
+  const loadConversations = async (authToken) => {
+    const t = authToken || token;
+    if (!t) return;
+    try {
+      const r = await fetchWithTimeout(`${API_BASE_URL}/conversations`, {
+        headers: { Authorization: `Bearer ${t}` }
+      }, 8000);
+      if (r.ok) {
+        const data = await r.json();
+        const serverConvs = data.conversations || [];
+        if (serverConvs.length > 0) {
+          setConversations(serverConvs);
+          const firstId = serverConvs[0].id;
+          setActiveConvId(firstId);
+          await loadHistoryFor(firstId, t);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load conversations from server:', e);
+    }
+    // Fallback: start initial clean session if no conversations returned
+    startNew();
+  };
+
+  useEffect(() => {
+    if (user?.id && token) {
+      if (initializedUserRef.current !== user.id) {
+        initializedUserRef.current = user.id;
+        // Clean any OAuth redirect hash/params from the URL
+        if (window.location.hash || window.location.search) {
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+        // Push a sentinel state and lock the back button while logged in
+        window.history.pushState({ nyaybot: true }, '', window.location.pathname);
+        const handlePopState = () => {
+          // Always push forward — prevents navigating away while authenticated
+          window.history.pushState({ nyaybot: true }, '', window.location.pathname);
+        };
+        window.addEventListener('popstate', handlePopState);
+        checkHealth();
+        // Load user's saved conversations from database
+        loadConversations(token);
+        return () => window.removeEventListener('popstate', handlePopState);
+      }
+    } else if (!user?.id) {
+      initializedUserRef.current = null;
+    }
+  }, [user?.id, token]);
 
 
   useEffect(() => {
@@ -205,49 +277,24 @@ function App() {
         setInputValue('');
       }
     }
+    // Delete from database in background
+    if (token) {
+      fetchWithTimeout(`${API_BASE_URL}/conversations/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      }, 5000).catch(() => {});
+    }
   };
 
   const selectConv = async (id) => {
-    if (id === activeConvId) return;
-    // Block switching while a query is actively generating — avoids race conditions
-    // where the response writes to the wrong conversation's messages.
-    if (loading) return;
+    if (id === activeConvId || loading) return;
     // Save the current conversation's draft before switching
     draftRef.current[activeConvId] = inputValue;
     setActiveConvId(id);
     setMessages([]);
     // Restore any saved draft for the new conversation
     setInputValue(draftRef.current[id] || '');
-    setLoading(true);
-    try {
-      const r = await fetchWithTimeout(`${API_BASE_URL}/history/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      }, 10000);
-      if (r.status === 401) { await supabase.auth.signOut(); return; }
-      if (r.ok) {
-        const { history } = await r.json();
-        if (!Array.isArray(history)) { setMessages([]); return; }
-        const msgs = [];
-        history.forEach(item => {
-          if (item.question || (item.role === 'user' && item.content)) {
-            msgs.push({ role: 'user', content: item.question || item.content });
-          }
-          if (item.answer || (item.role === 'assistant' && item.content)) {
-            msgs.push({
-              role: 'assistant',
-              content: item.answer || item.content,
-              sources: item.sources,
-              confidenceScore: item.confidence_score,
-              refused: item.refused,
-            });
-          }
-        });
-        setMessages(msgs);
-      } else {
-        setMessages([]);
-      }
-    } catch { setMessages([]); }
-    finally { setLoading(false); }
+    await loadHistoryFor(id, token);
   };
 
   // ── Send ────────────────────────────────────────────────
@@ -268,6 +315,14 @@ function App() {
     const convIdAtSubmit = activeConvId;
     setInputValue('');
     draftRef.current[convIdAtSubmit] = '';
+    // Update tab title from generic Session to the user's question preview
+    setConversations(prev => prev.map(c => {
+      if (c.id === convIdAtSubmit && (c.title.startsWith('Session ') || c.title.startsWith('Session_'))) {
+        const shortTitle = q.length > 28 ? q.substring(0, 28) + '...' : q;
+        return { ...c, title: shortTitle };
+      }
+      return c;
+    }));
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setLoading(true);
     // Create a new AbortController for this request
@@ -287,7 +342,9 @@ function App() {
       }).finally(() => clearTimeout(timeoutId));
       // 401 = token expired mid-session — sign out so user sees the login screen
       if (r.status === 401) {
-        await supabase.auth.signOut();
+        if (token !== 'guest-token') {
+          await supabase.auth.signOut();
+        }
         return;
       }
       if (r.ok) {
@@ -388,21 +445,24 @@ function App() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      // Try Supabase Anonymous sign-in (creates real guest session with valid JWT)
+      // 1. Try Supabase Anonymous sign-in (creates real guest session with valid JWT)
       const { data, error } = await supabase.auth.signInAnonymously();
-      if (error) throw error;
-      if (data?.session) {
+      if (!error && data?.session) {
         setUser(data.session.user);
         setToken(data.session.access_token);
         return;
       }
-      throw new Error('No session returned');
     } catch (e) {
-      console.warn('Anonymous sign-in not available:', e);
-      setAuthError('Guest access unavailable. Please sign in or create a free account.');
-    } finally {
-      setAuthLoading(false);
+      console.warn('Supabase anonymous sign-in not configured, using local guest mode:', e);
     }
+    // 2. Reliable Guest Mode
+    setUser({
+      id: '00000000-0000-0000-0000-000000000000',
+      email: 'guest@nyaybot.local',
+      user_metadata: { full_name: 'Guest User' }
+    });
+    setToken('guest-token');
+    setAuthLoading(false);
   };
 
   const switchAuthMode = (mode) => {
@@ -411,13 +471,22 @@ function App() {
   };
 
   const signOut = async () => {
-    if (token === 'guest-token') { setUser(null); setToken(null); }
-    else { await supabase.auth.signOut(); }
-    setConversations([]); setActiveConvId(''); setMessages([]);
+    initializedUserRef.current = null;
+    if (token === 'guest-token' || token === 'mock-token') {
+      setUser(null);
+      setToken(null);
+    } else {
+      try { await supabase.auth.signOut(); } catch {}
+      setUser(null);
+      setToken(null);
+    }
+    setConversations([]);
+    setActiveConvId('');
+    setMessages([]);
   };
 
   // ── Helpers ─────────────────────────────────────────────
-  const confClass = (s) => s >= 0.65 ? 'high' : s >= 0.55 ? 'medium' : 'low';
+  const confClass = (s) => s >= 0.70 ? 'high' : s >= 0.55 ? 'medium' : 'low';
 
   // ── Auth Gate ───────────────────────────────────────────
   if (!user) {
@@ -841,7 +910,7 @@ function App() {
                                 {src.document_name}
                               </a>
                             </div>
-                            <span className="citation-score">
+                            <span className={`citation-score ${confClass(src.relevance_score)}`}>
                               {(src.relevance_score * 100).toFixed(0)}%
                             </span>
                           </div>

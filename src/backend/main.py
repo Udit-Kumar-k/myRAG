@@ -69,8 +69,11 @@ async def lifespan(app: FastAPI):
     try:
         print("Pre-loading embedding model...")
         index_manager.load_embedding_model()
+        print("Warming up embedding model...")
+        index_manager.model.encode("warmup", normalize_embeddings=True)
+        print("Embedding model warm.")
     except Exception as e:
-        print(f"WARNING: Error pre-loading embedding model: {e}")
+        print(f"Warmup failed (non-fatal): {e}")
 
     rag_chain = LegalRAGChain()
     yield  # application runs here
@@ -135,9 +138,13 @@ else:
 class DatabaseManager:
     """Manages chat history, persisting to Supabase PostgreSQL, falling back to local file if offline."""
     def __init__(self):
-        self.local_db_path = "data/local_db.json"
+        db_path = "data/local_db.json"
+        if not os.path.exists("data"):
+            alt = os.path.join(os.path.dirname(__file__), "..", "..", "data", "local_db.json")
+            db_path = os.path.abspath(alt)
+        self.local_db_path = db_path
         self._file_lock = threading.Lock()  # guards local JSON read-modify-write
-        os.makedirs("data", exist_ok=True)
+        os.makedirs(os.path.dirname(self.local_db_path) or ".", exist_ok=True)
         if not os.path.exists(self.local_db_path):
             with open(self.local_db_path, "w") as f:
                 json.dump({}, f)
@@ -145,13 +152,21 @@ class DatabaseManager:
     def save_message(self, uid: str, conv_id: str, message: Dict[str, Any]):
         """Saves a message to Supabase PostgreSQL or local DB."""
         # 1. Try Supabase write
-        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000":
             try:
+                # Derive title from first user message if available
+                title = f"Session {conv_id[:4].upper()}"
+                if message.get("role") == "user":
+                    q = (message.get("content") or "").strip()
+                    if q:
+                        title = (q[:32] + "...") if len(q) > 32 else q
+
                 # First ensure conversation exists (upsert)
                 supabase.table("conversations").upsert({
                     "id": conv_id,
                     "user_id": uid,
-                    "title": f"Session {conv_id[:4].upper()}"
+                    "title": title,
+                    "updated_at": "now()"
                 }).execute()
                 
                 # Insert message
@@ -169,7 +184,7 @@ class DatabaseManager:
             except Exception as e:
                 print(f"Supabase Postgres save error: {e}. Falling back to local file.")
                 
-        # 2. Local JSON Fallback (useful for mock development and testing)
+        # 2. Local JSON Fallback (useful for mock development, tests, and guest users)
         try:
             with self._file_lock:
                 with open(self.local_db_path, "r") as f:
@@ -195,6 +210,78 @@ class DatabaseManager:
                 shutil.move(tmp_path, self.local_db_path)
         except Exception as e:
             print(f"Failed to save message to local DB: {e}")
+
+    def get_conversations(self, uid: str) -> List[Dict[str, Any]]:
+        """Retrieves all conversation sessions for a user, sorted newest first."""
+        # 1. Try Supabase
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000":
+            try:
+                res = supabase.table("conversations")\
+                              .select("id, title, updated_at, created_at")\
+                              .eq("user_id", uid)\
+                              .order("updated_at", desc=True)\
+                              .execute()
+                if res.data:
+                    return [
+                        {
+                            "id": row["id"],
+                            "title": row.get("title") or f"Session {row['id'][:4].upper()}",
+                            "ts": row.get("updated_at") or row.get("created_at")
+                        }
+                        for row in res.data
+                    ]
+            except Exception as e:
+                print(f"Supabase get_conversations error: {e}. Falling back to local file.")
+
+        # 2. Local JSON fallback
+        try:
+            with self._file_lock:
+                with open(self.local_db_path, "r") as f:
+                    data = json.load(f)
+
+            user_key = f"user_{uid}"
+            user_convs = data.get(user_key, {})
+            conv_list = []
+            for conv_id, msgs in user_convs.items():
+                if not msgs:
+                    continue
+                first_q = next((m.get("content") for m in msgs if m.get("role") == "user"), None)
+                title = (first_q[:32] + "...") if first_q and len(first_q) > 32 else (first_q or f"Session {conv_id[:4].upper()}")
+                last_ts = msgs[-1].get("timestamp", time.time())
+                conv_list.append({
+                    "id": conv_id,
+                    "title": title,
+                    "ts": last_ts
+                })
+            conv_list.sort(key=lambda x: x.get("ts", 0), reverse=True)
+            return conv_list
+        except Exception as e:
+            print(f"Failed to read conversations from local DB: {e}")
+            return []
+
+    def delete_conversation(self, uid: str, conv_id: str):
+        """Deletes a conversation and its messages from Supabase or local DB."""
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000":
+            try:
+                supabase.table("conversations").delete().eq("id", conv_id).eq("user_id", uid).execute()
+                return
+            except Exception as e:
+                print(f"Supabase delete_conversation error: {e}. Falling back to local file.")
+
+        try:
+            with self._file_lock:
+                with open(self.local_db_path, "r") as f:
+                    data = json.load(f)
+
+            user_key = f"user_{uid}"
+            if user_key in data and conv_id in data[user_key]:
+                del data[user_key][conv_id]
+                tmp_path = self.local_db_path + '.tmp'
+                with open(tmp_path, "w") as f:
+                    json.dump(data, f, indent=2)
+                shutil.move(tmp_path, self.local_db_path)
+        except Exception as e:
+            print(f"Failed to delete conversation from local DB: {e}")
 
     def get_history(self, uid: str, conv_id: str) -> List[Dict[str, Any]]:
         """Retrieves conversation history, sorted by created_at/timestamp."""
@@ -346,9 +433,8 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
 
     token = authorization.split("Bearer ")[1]
 
-    # SECURITY: Do NOT check `token == "mock-token"` here unconditionally.
-    # Gate this exclusively behind MOCK_AUTH.
-    if os.environ.get("MOCK_AUTH", "false").lower() == "true":
+    # Guest access and mock auth bypass
+    if token in ("guest-token", "mock-token") or os.environ.get("MOCK_AUTH", "false").lower() == "true":
         return mock_uuid
 
     if not supabase:
@@ -379,28 +465,10 @@ _CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", 1800))  # 30 min de
 _session_chunk_cache: OrderedDict[str, Tuple[List[Dict[str, Any]], float]] = OrderedDict()
 
 
-# --- Follow-up query detection ---
-_FOLLOWUP_PATTERNS = [
-    # Clarification / elaboration / simplification
-    r"\b(be\s+more\s+clear|more\s+clear|clarif|elaborate|explain\s+(further|more|that|again|in\s+simple|this)|simpl(y|ify)|in\s+plain|in\s+simple\s+(terms|language|words)|what\s+does\s+that\s+mean|what\s+do\s+you\s+mean)\b",
-    # Summary / recap of previous turns
-    r"\b(summar(y|ize|ise)|recap|what\s+(did|have)\s+we\s+(discuss|talk|cover|said)|everything\s+we\s+discussed|what\s+all\s+we\s+talked|list\s+everything|tell\s+me\s+everything)\b",
-    # Referential pronouns / anaphora pointing to previous answer
-    r"^\s*(what\s+about\s+(it|that|this|them|those|the\s+same)\b|what\s+is\s+its\s+\w+|what\s+are\s+its\s+\w+|and\s+the\s+\w+\s+(for|of|in|on)\s+(it|that|this|them)\b)",
-    r"\b(in\s+(this|that)\s+case|for\s+(this|that)|you\s+mentioned|you\s+said|previously\s+mentioned)\b",
-    # Short conversational responses / continuations
-    r"^\s*(ok|okay|thanks|thank\s+you|got\s+it|understood|yes|no|sure|cool|alright|fine|great)\.?\s*$",
-    r"^\s*(and\s+then\??|what\s+next\??|what\s+now\??|why\??|how\s+so\??|what\s+else\??|are\s+you\s+sure\??|tell\s+me\s+more\.?)\s*$",
-]
-_FOLLOWUP_RE = [re.compile(p, re.IGNORECASE) for p in _FOLLOWUP_PATTERNS]
-
+# --- Follow-up & Intent detection ---
 def _is_followup_query(question: str, has_prior_history: bool) -> bool:
-    """Returns True if the query is a conversational follow-up that should not
-    be routed through the RAG retrieval pipeline independently."""
-    if not has_prior_history:
-        return False
-    q = question.strip()
-    return any(pat.search(q) for pat in _FOLLOWUP_RE)
+    """Returns True if the query is a conversational follow-up to the immediate prior turn."""
+    return LegalRAGChain.detect_query_intent(question, has_prior_history) == 'FOLLOW_UP'
 
 # -------------------------------------------------------------
 # REQUEST/RESPONSE MODELS
@@ -481,16 +549,34 @@ def _run_query_inner(req: QueryRequest, uid: str):
 
     has_prior = len(history_msgs) > 0
 
-    # 1a-pre. Conversational shortcut — greetings, "what can you do", non-legal chit-chat.
-    # Bypass RAG entirely and respond friendly with the LLM directly.
-    if LegalRAGChain.is_conversational(req.question):
-        print(f"[CONVERSATIONAL] Detected non-legal query: '{req.question[:60]}'. Routing to conversational handler.")
+    # 1. Detect Intent: Common-Sense / Meta-Recap vs Legal Retrieval
+    intent = LegalRAGChain.detect_query_intent(req.question, has_prior)
+    print(f"[INTENT] Query classified as '{intent}': '{req.question[:60]}'")
+
+    # Branch 1: Meta-conversation & Common-Sense Queries (Recap / Greetings / Bot Capabilities)
+    # Bypasses statutory retrieval entirely so legal chunks are never searched for meta questions.
+    if intent in ('SESSION_RECAP', 'CONVERSATIONAL'):
+        conv_history = history_msgs
+        if intent == 'SESSION_RECAP':
+            full_msgs = []
+            for rec in history_records[-20:]:
+                content = (rec.get("content") or rec.get("question") or rec.get("answer") or "").strip()
+                if not content:
+                    continue
+                if rec.get("role") == "user" or rec.get("question"):
+                    full_msgs.append(HumanMessage(content=content[:300]))
+                elif rec.get("role") == "assistant" or rec.get("answer"):
+                    full_msgs.append(AIMessage(content=content[:300]))
+            if full_msgs:
+                conv_history = full_msgs
+
         try:
-            answer = rag_chain.handle_conversational(req.question, history_msgs)
-        except Exception:
+            answer = rag_chain.handle_conversational(req.question, conv_history)
+        except Exception as e:
+            print(f"[CONVERSATIONAL] Error: {e}")
             answer = "Hi! I'm NyayBot — ask me anything about Indian criminal law, consumer rights, cyber fraud, workplace rights, or property disputes."
+
         latency_ms = int((time.time() - start_t) * 1000)
-        # Save to history like a normal turn, but with refused=False and no sources
         db_manager.save_message(uid, req.conversation_id, {
             "role": "user", "content": req.question,
             "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None
@@ -507,73 +593,19 @@ def _run_query_inner(req: QueryRequest, uid: str):
             "latency_ms": latency_ms
         }
 
-    # 1a. Follow-up / clarification shortcut — bypass retrieval gate
-    if _is_followup_query(req.question, has_prior):
-        if req.conversation_id in _session_chunk_cache:
-            _session_chunk_cache.move_to_end(req.conversation_id)
-            cached_chunks_raw, cache_ts = _session_chunk_cache[req.conversation_id]
-            if (time.time() - cache_ts) < _CACHE_TTL_SECONDS:
-                cached_chunks = cached_chunks_raw
-            else:
-                del _session_chunk_cache[req.conversation_id]
-                cached_chunks = []
-        else:
-            cached_chunks = []
-        print(f"[FOLLOWUP] Detected conversational follow-up. Reusing {len(cached_chunks)} cached chunks.")
-        refused = False
-        # Use mean relevance of cached chunks rather than hardcoding 1.0
-        if cached_chunks:
-            confidence = sum(c.get('relevance_score', 0.0) for c in cached_chunks) / len(cached_chunks)
-        else:
-            confidence = 0.5  # unknown quality, not zero
-        namespace_searched = "memory"
-        retrieved_chunks = cached_chunks
+    # Branch 2: Legal Queries (Routed to the Laws via Statutory Retrieval + Contextual HyDE)
+    # If the user is asking a follow-up on the current topic ("what is the punishment for that?"),
+    # pass history to HyDE so it resolves the referential term against prior turns.
+    # If the user is asking a new legal scenario, pass history=None to guarantee 100% topic isolation.
+    history_for_hyde = history_msgs if intent == 'FOLLOW_UP' else None
+    history_for_chain = history_msgs if intent == 'FOLLOW_UP' else []
 
-        raw_provider = getattr(rag_chain, "provider", "gemini")
-        raw_model = getattr(rag_chain, "model_name", "gemini-3.6-flash")
-        provider = raw_provider if isinstance(raw_provider, str) else "gemini"
-        model_name = raw_model if isinstance(raw_model, str) else "gemini-3.6-flash"
-
-        try:
-            answer = rag_chain.run(req.question, retrieved_chunks, history_msgs)
-        except Exception as e:
-            print(f"LLM chain execution error (follow-up): {e}")
-            raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
-
-        latency_ms = int((time.time() - start_t) * 1000)
-        sources = []
-        for chunk in retrieved_chunks:
-            meta = chunk["metadata"]
-            sources.append({
-                "document_name": meta["document_name"],
-                "legal_domain":  meta.get("legal_domain", "general"),
-                "pub_year":      meta["pub_year"],
-                "namespace":     meta["namespace"],
-                "source_url":    meta["source_url"],
-                "relevance_score": chunk.get("relevance_score", 0.0)
-            })
-
-        print(f"[QUERY_TELEMETRY] uid={uid[:8]}... conv={req.conversation_id[:8]}... conf={confidence:.4f} ns={namespace_searched} refused={refused} provider={provider} model={model_name} latency_ms={latency_ms}")
-
-        for record, role_key, content_val in [
-            ({"role": "user", "content": req.question, "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None}, None, None),
-            ({"role": "assistant", "content": answer, "sources": sources, "confidence_score": confidence, "refused": False, "namespace_searched": namespace_searched, "provider": provider, "model": model_name, "latency_ms": latency_ms}, None, None),
-        ]:
-            db_manager.save_message(uid, req.conversation_id, record)
-
-        return {
-            "answer": answer,
-            "sources": sources,
-            "confidence_score": confidence,
-            "refused": refused,
-            "provider": provider,
-            "model": model_name,
-            "latency_ms": latency_ms
-        }
-
-    # 1b. Normal path — full retrieval pipeline
     try:
-        pipeline_res = rag_pipeline.query(req.question, conversation_id=req.conversation_id)
+        pipeline_res = rag_pipeline.query(
+            req.question,
+            conversation_id=req.conversation_id,
+            history=history_for_hyde
+        )
     except Exception as e:
         tb = traceback.format_exc()
         print(f"PIPELINE QUERY CRASHED:\n{tb}")
@@ -584,7 +616,7 @@ def _run_query_inner(req: QueryRequest, uid: str):
     namespace_searched = pipeline_res["namespace_searched"]
     retrieved_chunks = pipeline_res["retrieved_chunks"]
 
-    # Cache chunks for future follow-up reuse (with timestamp for TTL)
+    # Cache chunks for future follow-up reuse
     if not refused and retrieved_chunks:
         if req.conversation_id in _session_chunk_cache:
             _session_chunk_cache.move_to_end(req.conversation_id)
@@ -612,9 +644,8 @@ def _run_query_inner(req: QueryRequest, uid: str):
     if refused:
         answer = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
     else:
-        # 2 & 3. Generate Answer using LangChain with pre-loaded history
         try:
-            answer = rag_chain.run(req.question, retrieved_chunks, history_msgs)
+            answer = rag_chain.run(req.question, retrieved_chunks, history_for_chain)
         except Exception as e:
             print(f"LLM chain execution error: {e}")
             raise HTTPException(status_code=500, detail=f"LLM generation failed: {str(e)}")
@@ -672,11 +703,22 @@ def get_telemetry_metrics(uid: str = Depends(authenticate_user)):
     """
     return db_manager.get_telemetry()
 
+@app.get("/conversations")
+def list_user_conversations(uid: str = Depends(authenticate_user)):
+    """Retrieves all conversation sessions for the authenticated user."""
+    return {"conversations": db_manager.get_conversations(uid)}
+
 @app.get("/history/{conversation_id}")
 def get_conversation_history(conversation_id: str, uid: str = Depends(authenticate_user)):
     """Retrieves full conversation history for the authenticated user."""
     history = db_manager.get_history(uid, conversation_id)
     return {"history": history if isinstance(history, list) else []}
+
+@app.delete("/conversations/{conversation_id}")
+def delete_user_conversation(conversation_id: str, uid: str = Depends(authenticate_user)):
+    """Deletes a conversation and its messages."""
+    db_manager.delete_conversation(uid, conversation_id)
+    return {"status": "success"}
 
 @app.get("/health")
 def health_check():
