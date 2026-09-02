@@ -67,7 +67,6 @@ CONSUMER_KEYWORDS = [
     "unfair trade", "misleading advertisement", "consumer forum",
     "consumer commission", "product liability", "e-commerce",
     "defective goods", "consumer complaint", "consumer rights",
-    "landlord", "tenant", "deposit", "rent",
 ]
 
 BANKING_KEYWORDS = [
@@ -79,6 +78,9 @@ BANKING_KEYWORDS = [
 ]
 
 CIVIL_KEYWORDS = [
+    # Tenancy, landlord, lease, security deposit, and property disputes (Transfer of Property Act, 1882)
+    "landlord", "tenant", "deposit", "security deposit", "rent", "lease", "lessor", "lessee",
+    "eviction", "tenancy", "transfer of property", "property dispute", "vacate",
     # Employment and salary disputes (route to general — ICA/Payment of Wages Act/Code on Wages)
     "salary", "wages", "employment", "employer", "employee", "boss", "overtime",
     "working hours", "workplace", "workplace harassment", "office", "hostile work environment",

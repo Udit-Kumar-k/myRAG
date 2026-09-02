@@ -1415,4 +1415,19 @@ body {
   white-space: nowrap;
 }
 
+/* ─── Streaming Cursor ───────────────────────────────── */
+.streaming-cursor {
+  display: inline-block;
+  color: var(--accent);
+  margin-left: 2px;
+  font-weight: 700;
+  vertical-align: baseline;
+  animation: cursor-blink 0.8s infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 

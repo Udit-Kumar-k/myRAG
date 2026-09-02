@@ -164,7 +164,14 @@ class LegalIndexManager:
             from contextlib import nullcontext
             _inference_ctx = nullcontext
 
+        rebuild_ns_env = os.environ.get("REBUILD_NAMESPACES", "").strip()
+        target_namespaces = [n.strip() for n in rebuild_ns_env.split(",") if n.strip()] if rebuild_ns_env else self.namespaces
+
         for ns in self.namespaces:
+            if ns not in target_namespaces:
+                print(f"\n--- Namespace: {ns} not in REBUILD_NAMESPACES. Preserving existing index. ---")
+                continue
+
             # Check if index files already exist to support resuming.
             # Skip only when force_rebuild is False — after any ingestion or
             # chunking fix, pass force_rebuild=True to avoid serving stale data.
@@ -310,9 +317,8 @@ if __name__ == "__main__":
     hf_token = os.environ.get("HF_TOKEN", "").strip()
     hf_token = hf_token or None
 
-    # Set FORCE_REBUILD=1 in env to rebuild indexes even if files already exist.
-    # Always set this after any chunking or ingestion change.
-    force_rebuild = os.environ.get("FORCE_REBUILD", "0").strip() in ("1", "true", "yes")
+    # Default FORCE_REBUILD=1 when executed as a script so rebuilding always overwrites stale indexes.
+    force_rebuild = os.environ.get("FORCE_REBUILD", "1").strip() in ("1", "true", "yes")
     if force_rebuild:
         print("FORCE_REBUILD=1 detected — existing index files will be overwritten.")
 

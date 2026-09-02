@@ -184,5 +184,51 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertIn(authenticate_user, dep_fns,
             "get_telemetry_metrics must depend on authenticate_user")
 
+    @patch("src.backend.main.rag_pipeline")
+    @patch("src.backend.main.rag_chain")
+    def test_stream_query_endpoint(self, mock_chain, mock_pipeline):
+        mock_pipeline.query.return_value = {
+            "query": "What is the punishment for murder under BNS?",
+            "refused": False,
+            "confidence_score": 0.85,
+            "namespace_searched": "criminal",
+            "retrieved_chunks": [
+                {
+                    "text": "Section 103 of BNS prescribes punishment for murder with imprisonment for life or death.",
+                    "relevance_score": 0.85,
+                    "metadata": {
+                        "document_name": "Bharatiya Nyaya Sanhita 2023",
+                        "legal_domain": "criminal",
+                        "pub_year": 2023,
+                        "namespace": "criminal",
+                        "source_url": "https://indiacode.nic.in"
+                    }
+                }
+            ]
+        }
+
+        async def mock_tokens(*args, **kwargs):
+            for t in ["Under ", "BNS ", "Section 103..."]:
+                yield t
+
+        mock_chain.astream_run.side_effect = mock_tokens
+        mock_chain.verify_citations.return_value = ("Under BNS Section 103...", [])
+
+        response = client.post(
+            "/stream-query",
+            json={
+                "question": "What is the punishment for murder under BNS?",
+                "conversation_id": "conv_abc1234"
+            },
+            headers={"Authorization": "Bearer mock-token"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/event-stream", response.headers.get("content-type", ""))
+        body = response.text
+        self.assertIn('data: {"token": "Under ", "done": false}', body)
+        self.assertIn('"done": true', body)
+        self.assertIn('"confidence_score": 0.85', body)
+        self.assertIn('"sources":', body)
+
 if __name__ == "__main__":
     unittest.main()

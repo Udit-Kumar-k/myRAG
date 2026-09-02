@@ -610,6 +610,72 @@ PDF_CORPUS = [
     ("data/raw/BSArag.pdf",  "Bharatiya Sakshya Adhiniyam 2023"),
 ]
 
+# Raw text corpus definition (statutes not present in HF dataset or primary PDFs)
+TEXT_CORPUS = [
+    (
+        "data/raw/transfer_of_property_act_1882.txt",
+        "Transfer of Property Act, 1882",
+        1882,
+        "https://indiacode.nic.in"
+    ),
+]
+
+
+def load_raw_text_act(
+    file_path_or_url: str,
+    act_name: str,
+    pub_year: int = 1882,
+    source_url: str = "https://indiacode.nic.in"
+) -> List[Dict[str, Any]]:
+    """
+    Loads raw text for an act (e.g. Transfer of Property Act, 1882) either from
+    a local file or via an HTTP URL, and splits it into sections using _split_sections().
+    """
+    import requests
+
+    text = ""
+    if os.path.exists(file_path_or_url):
+        print(f"  Loading raw text from local path: {file_path_or_url}")
+        with open(file_path_or_url, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    elif file_path_or_url.startswith("http://") or file_path_or_url.startswith("https://"):
+        print(f"  Fetching raw text from URL: {file_path_or_url}")
+        r = requests.get(file_path_or_url, timeout=30)
+        r.raise_for_status()
+        text = r.text
+    else:
+        print(f"  WARNING: Cannot find raw text at: {file_path_or_url}")
+        return []
+
+    if not text.strip():
+        return []
+
+    raw_chunks = _split_sections(text)
+    namespace = assign_namespace(act_name)
+    chunks: List[Dict[str, Any]] = []
+
+    for raw in raw_chunks:
+        chunk_text = raw.strip()
+        if len(chunk_text) < 50:
+            continue
+        is_oversized = len(chunk_text) > _MAX_CHUNK_CHARS
+        chunks.append({
+            "text": chunk_text,
+            "metadata": {
+                "document_name": act_name,
+                "act_name":      act_name,
+                "namespace":     namespace,
+                "source":        "raw_text",
+                "pub_year":      pub_year,
+                "source_url":    source_url,
+                "legal_domain":  namespace,
+                "is_oversized":  is_oversized,
+            }
+        })
+
+    print(f"  Processed {len(chunks)} chunks for '{act_name}' (namespace: {namespace})")
+    return chunks
+
 
 def process_corpus(
     hf_token: Optional[str] = None,
@@ -638,6 +704,15 @@ def process_corpus(
     except Exception as e:
         print(f"  ERROR loading HuggingFace dataset: {e}")
         print("  Continuing with PDF chunks only.")
+
+    # STEP 3: Load raw text acts (e.g. Transfer of Property Act 1882)
+    print("\n=== STEP 3: Loading raw text legal acts ===")
+    for text_path, act_name, pub_year, src_url in TEXT_CORPUS:
+        try:
+            txt_chunks = load_raw_text_act(text_path, act_name, pub_year=pub_year, source_url=src_url)
+            all_chunks.extend(txt_chunks)
+        except Exception as e:
+            print(f"  ERROR loading raw text act '{act_name}': {e}")
 
     # Summary
     print(f"\n=== CORPUS SUMMARY ===")

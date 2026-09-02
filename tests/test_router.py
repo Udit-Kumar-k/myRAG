@@ -29,13 +29,23 @@ class TestLegalQueryRouter(unittest.TestCase):
     def test_consumer_routing(self):
         queries = [
             "How do I file a consumer complaint for a defective product?",
-            "My landlord won't return my deposit.",
+            "The seller delivered a damaged item and won't give a refund.",
             "What are consumer rights regarding refund of goods?",
             "Can I sue for misleading advertisement under consumer protection?",
         ]
         for q in queries:
             with self.subTest(query=q):
                 self.assertEqual(route_query(q), "consumer")
+
+    def test_general_routing(self):
+        queries = [
+            "My landlord won't return my deposit.",
+            "Can the lessor evict the tenant without notice under the lease?",
+            "What are my rights regarding unpaid salary and wages?",
+        ]
+        for q in queries:
+            with self.subTest(query=q):
+                self.assertEqual(route_query(q), "general")
 
     def test_banking_routing(self):
         queries = [

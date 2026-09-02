@@ -460,6 +460,84 @@ class LegalRAGChain:
         verified_answer, _ = self.verify_citations(raw_answer, context_chunks)
         return verified_answer
 
+    async def astream_run(
+        self,
+        question: str,
+        context_chunks: List[Dict[str, Any]],
+        history: List[Any] = []
+    ):
+        """Asynchronously streams answer tokens from the chain."""
+        self._init_llm()
+        context_str = format_context(context_chunks)
+        inputs = {
+            "context": context_str,
+            "question": question,
+            "history": history,
+        }
+        chain = self.get_chain()
+        try:
+            async for token in chain.astream(inputs):
+                if token:
+                    yield token
+        except Exception as e:
+            print(f"Primary astream failed ({e}). Attempting fallback streaming...")
+            if self.provider == "gemini" and self.groq_key:
+                from langchain_groq import ChatGroq
+                groq_model = os.environ.get("FALLBACK_MODEL", "qwen/qwen3.8-27b")
+                fb_llm = ChatGroq(model=groq_model, api_key=self.groq_key, temperature=0.0, max_tokens=4096)
+                fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
+                async for token in fb_chain.astream(inputs):
+                    if token:
+                        yield token
+            else:
+                raise e
+
+    async def astream_conversational(self, question: str, history: List[Any]):
+        """Asynchronously streams conversational / recap responses."""
+        self._init_llm()
+        conv_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are NyayBot, an Indian legal awareness assistant. You are warm, approachable, and helpful.
+
+When a user sends a greeting, casual message, or asks about what you can do:
+- Respond naturally and briefly (1-3 sentences max)
+- Mention your purpose: answering legal questions grounded in Indian statutory law
+- Suggest what kind of questions you can help with (criminal law, consumer rights, cyber law, workplace rights, property disputes, etc.)
+- Do NOT refuse or say "insufficient information" for casual messages. Do NOT say "consult a lawyer" for greetings.
+
+When a user asks what happened in the chat, what was discussed, or asks for a recap/summary of the conversation:
+- Review the conversation history carefully.
+- If legal scenarios were discussed, summarize each situation and the relevant Indian statutory provisions in clear bullet points.
+- If the conversation so far only contains greetings, jokes, casual chit-chat, or off-topic remarks (e.g. "yo", "i shat my pants"), acknowledge that naturally: "In this conversation so far, we've exchanged greetings and casual remarks, but haven't discussed any specific Indian legal issues yet. Feel free to ask any question about criminal law, cyber fraud, tenancy, consumer rights, or workplace issues!"
+- If there are NO prior messages in the conversation history, say: "This is a new conversation with no prior messages yet. Feel free to ask any question about Indian law!"
+
+You can help with:
+- Rights when arrested (BNS, BNSS)
+- Cyber fraud, OTP theft, phishing (IT Act)
+- Consumer complaints, defective products (Consumer Protection Act)
+- Workplace abuse, overtime pay (Code on Wages, BNS)
+- Cheque bounce (Negotiable Instruments Act)
+- Domestic violence, dowry harassment (PWDVA, BNS)
+- Property, tenancy, deposit disputes"""),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{question}"),
+        ])
+        chain = conv_prompt | self._llm | StrOutputParser()
+        try:
+            async for token in chain.astream({"question": question, "history": history}):
+                if token:
+                    yield token
+        except Exception as e:
+            print(f"astream_conversational failed ({e})")
+            if self.groq_key:
+                from langchain_groq import ChatGroq
+                groq_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
+                fb_chain = conv_prompt | groq_llm | StrOutputParser()
+                async for token in fb_chain.astream({"question": question, "history": history}):
+                    if token:
+                        yield token
+            else:
+                yield "Hi! I'm NyayBot — ask me anything about Indian criminal law, consumer rights, cyber fraud, workplace rights, or property disputes."
+
     def _init_expansion_llm(self):
         # Deprecated: expansion now uses self._llm (temperature=0.0 globally).
         # Kept as a no-op so any external callers don't break.
@@ -700,8 +778,10 @@ When a user sends a greeting, casual message, or asks about what you can do:
 - Do NOT refuse or say "insufficient information" for casual messages. Do NOT say "consult a lawyer" for greetings.
 
 When a user asks what happened in the chat, what was discussed, or asks for a recap/summary of the conversation:
-- Review the conversation history and provide a concise, structured summary listing the key legal situations and statutory provisions covered in this session.
-- If there are NO prior messages in the conversation history, say: "This is a new conversation with no prior legal topics discussed yet. Feel free to ask any question about Indian law!"
+- Review the conversation history carefully.
+- If legal scenarios were discussed, summarize each situation and the relevant Indian statutory provisions in clear bullet points.
+- If the conversation so far only contains greetings, jokes, casual chit-chat, or off-topic remarks (e.g. "yo", "i shat my pants"), acknowledge that naturally: "In this conversation so far, we've exchanged greetings and casual remarks, but haven't discussed any specific Indian legal issues yet. Let me know if you have any questions on criminal law, cyber fraud, tenancy, consumer rights, or workplace issues!"
+- If there are NO prior messages in the conversation history, say: "This is a new conversation with no prior messages yet. Feel free to ask any question about Indian law!"
 
 You can help with:
 - Rights when arrested (BNS, BNSS)
@@ -734,7 +814,7 @@ You can help with:
         """
         Classifies incoming user question into intent category:
         - 'SESSION_RECAP': user asking what was discussed, what happened, or asking for a recap
-        - 'CONVERSATIONAL': greetings, chitchat, bot capabilities
+        - 'CONVERSATIONAL': greetings, chitchat, bot capabilities, casual non-legal banter
         - 'FOLLOW_UP': referential question referring to immediate previous turn
         - 'LEGAL_QUERY': substantive legal question/scenario
         """
@@ -744,6 +824,7 @@ You can help with:
         # 1. Session recap / summary
         if re.search(
             r'\b(what\s+happened\s+in\s+this\s+(chat|conversation|session)|'
+            r'what\s+happened\s+(so\s+far|here)|'
             r'what\s+(did|have)\s+we\s+(discuss|talk|cover|said)\b|'
             r'summar(y|ize|ise)|'
             r'recap|'
@@ -753,23 +834,50 @@ You can help with:
         ):
             return 'SESSION_RECAP'
 
-        # 2. Pure greetings, casual chitchat, bot capabilities
+        # 2. Pure greetings, casual chitchat, slang
+        greeting_words = {
+            'hi', 'hello', 'hey', 'yo', 'sup', 'wassup', 'wazzup', 'heya', 'howdy', 'hola',
+            'thanks', 'thank', 'you', 'thx', 'ok', 'okay', 'k', 'kk', 'bye', 'goodbye',
+            'great', 'cool', 'nice', 'sure', 'noted', 'understood', 'namaste', 'namaskar',
+            'alright', 'wow', 'good', 'morning', 'evening', 'afternoon', 'night', 'gm', 'gn',
+            'bro', 'dude', 'man', 'buddy', 'pal', 'lol', 'lmao', 'haha', 'hahaha', 'hmm', 'hmmm'
+        }
         words = set(re.findall(r'\b\w+\b', q))
-        if len(words) <= 3 and words.issubset({
-            'hi', 'hello', 'hey', 'hiya', 'howdy', 'thanks', 'ok', 'okay',
-            'bye', 'goodbye', 'great', 'cool', 'nice', 'sure', 'noted',
-            'understood', 'namaste', 'namaskar', 'alright', 'wow',
-            'good', 'morning', 'evening', 'afternoon', 'night', 'thank', 'you'
-        }) and '?' not in q:
+        if words and words.issubset(greeting_words) and '?' not in q:
             return 'CONVERSATIONAL'
 
         if re.search(
             r'\b(what can you (do|help|answer)|what (do|can) you know|'
             r'tell me about yourself|who are you|are you (a )?bot|'
-            r'what are you|what is nyaybot|how does this work)\b',
+            r'what are you|what is nyaybot|how does this work|'
+            r'how are you|how are you doing|hows it going|how is it going|'
+            r'what is up|whats up|what\'s up|tell me a joke|sing a song|'
+            r'can you talk|are you real|im bored|i am bored)\b',
             q
         ):
             return 'CONVERSATIONAL'
+
+        # Off-topic personal / biological / hygiene / nonsensical statements
+        legal_indicators = [
+            "crime", "criminal", "murder", "kill", "theft", "stolen", "steal", "robbery", "dacoity",
+            "assault", "beat", "hit", "rape", "sexual", "harass", "stalk", "threat", "extort", "blackmail",
+            "kidnap", "fraud", "scam", "cheat", "forge", "impersonat", "hack", "phish", "cyber", "otp",
+            "cruelty", "dowry", "domestic violence", "bribe", "corrupt", "trespass", "defamat",
+            "police", "fir", "arrest", "custody", "bail", "court", "magistrate", "judge", "lawyer",
+            "advocate", "summons", "warrant", "chargesheet", "complaint", "investigat", "evidence", "witness",
+            "case", "sue", "legal", "law", "petition", "zero fir", "rights",
+            "act", "section", "bns", "bnss", "bsa", "ipc", "crpc", "it act", "cpa", "ni act", "tpa",
+            "punish", "imprisonment", "fine", "penalty", "offence", "offense", "cognizable", "bailable",
+            "landlord", "tenant", "deposit", "rent", "lease", "lessor", "lessee", "evict", "property",
+            "will", "inheritance", "heir", "succession", "estate", "deed",
+            "consumer", "defective", "warranty", "refund", "seller", "product", "deficiency",
+            "salary", "wage", "employer", "employee", "boss", "overtime", "job", "terminat", "fired",
+            "notice period", "resignation", "gratuity", "provident fund", "epf", "cheque", "bank", "loan"
+        ]
+        has_legal_term = any(k in q for k in legal_indicators)
+        if not has_legal_term:
+            if re.search(r'\b(shat|poop|pee|pant|pants|hungry|sleepy|tired|sick|headache|fever|bored|weather|joke|birthday|math|song|movie|game|music)\b', q):
+                return 'CONVERSATIONAL'
 
         # 3. Follow-up / referential question
         if has_prior_history:

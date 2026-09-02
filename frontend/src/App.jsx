@@ -302,20 +302,13 @@ function App() {
     e.preventDefault();
     const q = inputValue.trim();
     if (!q || loading) return;
-    // Guard: token should never be null here (user is authenticated),
-    // but if a race condition on init leaves it null, force re-auth
-    // rather than leaking a mock-token fallback to production.
     if (!token) {
       await supabase.auth.signOut();
       return;
     }
-    // Capture the conversation ID at the time of submission.
-    // If the user somehow switches tabs mid-generation, the response
-    // will still write back to the original conversation.
     const convIdAtSubmit = activeConvId;
     setInputValue('');
     draftRef.current[convIdAtSubmit] = '';
-    // Update tab title from generic Session to the user's question preview
     setConversations(prev => prev.map(c => {
       if (c.id === convIdAtSubmit && (c.title.startsWith('Session ') || c.title.startsWith('Session_'))) {
         const shortTitle = q.length > 28 ? q.substring(0, 28) + '...' : q;
@@ -323,15 +316,24 @@ function App() {
       }
       return c;
     }));
-    setMessages(prev => [...prev, { role: 'user', content: q }]);
+
+    // Append user message and streaming assistant placeholder
+    setMessages(prev => [
+      ...prev,
+      { role: 'user', content: q },
+      { role: 'assistant', content: '', sources: [], confidenceScore: null, refused: false, isStreaming: true }
+    ]);
     setLoading(true);
-    // Create a new AbortController for this request
+
     abortRef.current = new AbortController();
+    const ctrl = abortRef.current;
+    const timeoutId = setTimeout(() => ctrl.abort(), 180000);
+
+    let streamSuccess = false;
+
     try {
-      // 3-minute timeout — first query loads the embedding model (~1-2 min)
-      const ctrl = abortRef.current;
-      const timeoutId = setTimeout(() => ctrl.abort(), 180000);
-      const r = await fetch(`${API_BASE_URL}/query`, {
+      // Step 1: Try /stream-query first
+      const r = await fetch(`${API_BASE_URL}/stream-query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -339,44 +341,155 @@ function App() {
         },
         body: JSON.stringify({ question: q, conversation_id: convIdAtSubmit }),
         signal: ctrl.signal,
-      }).finally(() => clearTimeout(timeoutId));
-      // 401 = token expired mid-session — sign out so user sees the login screen
+      });
+
       if (r.status === 401) {
-        if (token !== 'guest-token') {
-          await supabase.auth.signOut();
-        }
+        clearTimeout(timeoutId);
+        if (token !== 'guest-token') await supabase.auth.signOut();
         return;
       }
-      if (r.ok) {
-        const data = await r.json();
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.answer,
-          sources: data.sources,
-          confidenceScore: data.confidence_score,
-          refused: data.refused,
-        }]);
-      } else {
-        const detail = await r.json().catch(() => ({}));
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Error ${r.status}: ${detail.detail || 'Backend returned an error.'}`,
-          refused: true,
-          confidenceScore: 0,
-        }]);
+
+      if (r.ok && r.body) {
+        streamSuccess = true;
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // retain partial line
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              const jsonStr = trimmed.slice(6).trim();
+              if (!jsonStr) continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.done) {
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last && last.role === 'assistant') {
+                      updated[updated.length - 1] = {
+                        ...last,
+                        content: parsed.answer || last.content,
+                        sources: parsed.sources || [],
+                        confidenceScore: parsed.confidence_score,
+                        refused: parsed.refused || false,
+                        isStreaming: false,
+                      };
+                    }
+                    return updated;
+                  });
+                } else if (parsed.token) {
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last && last.role === 'assistant') {
+                      updated[updated.length - 1] = {
+                        ...last,
+                        content: last.content + parsed.token,
+                        isStreaming: true,
+                      };
+                    }
+                    return updated;
+                  });
+                }
+              } catch (e) {
+                console.error("SSE parse error:", e);
+              }
+            }
+          }
+        }
       }
     } catch (err) {
-      if (err.name === 'AbortError') return; // user switched tabs — silently discard
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Network error — please check your connection or verify the backend service is running.',
-        refused: true,
-        confidenceScore: 0,
-      }]);
+      if (err.name === 'AbortError') {
+        clearTimeout(timeoutId);
+        return;
+      }
+      console.warn("Streaming failed or unsupported, falling back to /query:", err);
+      streamSuccess = false;
     } finally {
-      setLoading(false);
-      checkHealth();
+      clearTimeout(timeoutId);
     }
+
+    // Step 2: Fallback to /query if stream failed
+    if (!streamSuccess && !ctrl.signal.aborted) {
+      try {
+        const timeoutId2 = setTimeout(() => ctrl.abort(), 180000);
+        const fb = await fetch(`${API_BASE_URL}/query`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ question: q, conversation_id: convIdAtSubmit }),
+          signal: ctrl.signal,
+        }).finally(() => clearTimeout(timeoutId2));
+
+        if (fb.status === 401) {
+          if (token !== 'guest-token') await supabase.auth.signOut();
+          return;
+        }
+        if (fb.ok) {
+          const data = await fb.json();
+          setMessages(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last && last.role === 'assistant') {
+              updated[updated.length - 1] = {
+                ...last,
+                content: data.answer,
+                sources: data.sources || [],
+                confidenceScore: data.confidence_score,
+                refused: data.refused,
+                isStreaming: false,
+              };
+            }
+            return updated;
+          });
+        } else {
+          const detail = await fb.json().catch(() => ({}));
+          setMessages(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last && last.role === 'assistant') {
+              updated[updated.length - 1] = {
+                ...last,
+                content: `Error ${fb.status}: ${detail.detail || 'Backend returned an error.'}`,
+                refused: true,
+                confidenceScore: 0,
+                isStreaming: false,
+              };
+            }
+            return updated;
+          });
+        }
+      } catch (err2) {
+        if (err2.name === 'AbortError') return;
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              content: 'Network error — please check your connection or verify the backend service is running.',
+              refused: true,
+              confidenceScore: 0,
+              isStreaming: false,
+            };
+          }
+          return updated;
+        });
+      }
+    }
+
+    setLoading(false);
+    checkHealth();
   };
 
   // handle Enter key (Shift+Enter = newline)
@@ -881,10 +994,10 @@ function App() {
                       </a>
                     </div>
                   ) : msg.role === 'assistant' ? (
-                    <div
-                      className="msg-text formatted-markdown"
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(msg.content || ''), { USE_PROFILES: { html: true } }) }}
-                    />
+                    <div className="msg-text formatted-markdown">
+                      <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(msg.content || ''), { USE_PROFILES: { html: true } }) }} />
+                      {msg.isStreaming && <span className="streaming-cursor">▌</span>}
+                    </div>
                   ) : (
                     <div className="msg-text user-msg-text">{msg.content}</div>
                   )}

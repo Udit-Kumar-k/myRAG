@@ -11,6 +11,7 @@ from collections import OrderedDict
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional, Tuple, Literal
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -508,6 +509,176 @@ class FeedbackRequest(BaseModel):
 # -------------------------------------------------------------
 # ENDPOINTS
 # -------------------------------------------------------------
+
+@app.post("/stream-query")
+@limiter.limit(_query_rate_limit)
+async def stream_query(request: Request, req: QueryRequest, uid: str = Depends(authenticate_user)):
+    """Streams question answer tokens using Server-Sent Events (SSE)."""
+    if not rag_pipeline:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized. Check logs.")
+
+    async def event_generator():
+        start_t = time.time()
+
+        # 0. Load conversation history
+        history_msgs = []
+        history_records = []
+        try:
+            from langchain_core.messages import HumanMessage, AIMessage
+            history_records = db_manager.get_history(uid, req.conversation_id)
+            for rec in history_records[-4:]:
+                if rec.get("refused", False):
+                    continue
+                content = (rec.get("content") or rec.get("question") or rec.get("answer") or "").strip()
+                if len(content) > 500:
+                    content = content[:500] + "..."
+                if rec.get("role") == "user" or rec.get("question"):
+                    history_msgs.append(HumanMessage(content=content))
+                elif rec.get("role") == "assistant" or rec.get("answer"):
+                    history_msgs.append(AIMessage(content=content))
+        except Exception as e:
+            print(f"WARNING: Error loading conversation history: {e}")
+
+        has_prior = len(history_msgs) > 0
+        intent = LegalRAGChain.detect_query_intent(req.question, has_prior)
+        print(f"[STREAM INTENT] Query classified as '{intent}': '{req.question[:60]}'")
+
+        # Branch 1: Meta-conversation & Common-Sense Queries (Recap / Greetings / Capabilities)
+        if intent in ('SESSION_RECAP', 'CONVERSATIONAL'):
+            conv_history = history_msgs
+            if intent == 'SESSION_RECAP':
+                full_msgs = []
+                for rec in history_records[-20:]:
+                    content = (rec.get("content") or rec.get("question") or rec.get("answer") or "").strip()
+                    if not content:
+                        continue
+                    if rec.get("role") == "user" or rec.get("question"):
+                        full_msgs.append(HumanMessage(content=content[:300]))
+                    elif rec.get("role") == "assistant" or rec.get("answer"):
+                        full_msgs.append(AIMessage(content=content[:300]))
+                if full_msgs:
+                    conv_history = full_msgs
+
+            accumulated = []
+            try:
+                async for token in rag_chain.astream_conversational(req.question, conv_history):
+                    accumulated.append(token)
+                    yield f"data: {json.dumps({'token': token, 'done': False})}\n\n"
+            except Exception as e:
+                print(f"[STREAM_CONV] Error: {e}")
+                fallback_token = "Hi! I'm NyayBot — ask me anything about Indian criminal law, consumer rights, cyber fraud, workplace rights, or property disputes."
+                accumulated.append(fallback_token)
+                yield f"data: {json.dumps({'token': fallback_token, 'done': False})}\n\n"
+
+            full_answer = "".join(accumulated)
+            latency_ms = int((time.time() - start_t) * 1000)
+            db_manager.save_message(uid, req.conversation_id, {
+                "role": "user", "content": req.question,
+                "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None
+            })
+            db_manager.save_message(uid, req.conversation_id, {
+                "role": "assistant", "content": full_answer,
+                "sources": [], "confidence_score": None, "refused": False,
+                "namespace_searched": "conversational", "latency_ms": latency_ms
+            })
+
+            yield f"data: {json.dumps({'done': True, 'answer': full_answer, 'sources': [], 'confidence_score': None, 'refused': False, 'latency_ms': latency_ms, 'provider': getattr(rag_chain, 'provider', 'gemini'), 'model': getattr(rag_chain, 'model_name', 'gemini-3.6-flash')})}\n\n"
+            return
+
+        # Branch 2: Legal Queries (Routed to the Laws via Statutory Retrieval + Contextual HyDE)
+        history_for_hyde = history_msgs if intent == 'FOLLOW_UP' else None
+        history_for_chain = history_msgs if intent == 'FOLLOW_UP' else []
+
+        try:
+            pipeline_res = rag_pipeline.query(
+                req.question,
+                conversation_id=req.conversation_id,
+                history=history_for_hyde
+            )
+        except Exception as e:
+            err_msg = f"Retrieval pipeline error: {str(e)}"
+            yield f"data: {json.dumps({'refused': True, 'answer': err_msg, 'done': True, 'sources': [], 'confidence_score': 0.0})}\n\n"
+            return
+
+        refused = pipeline_res["refused"]
+        confidence = pipeline_res["confidence_score"]
+        namespace_searched = pipeline_res["namespace_searched"]
+        retrieved_chunks = pipeline_res["retrieved_chunks"]
+
+        if not refused and retrieved_chunks:
+            if req.conversation_id in _session_chunk_cache:
+                _session_chunk_cache.move_to_end(req.conversation_id)
+            _session_chunk_cache[req.conversation_id] = (retrieved_chunks, time.time())
+            if len(_session_chunk_cache) > _MAX_CACHE:
+                _session_chunk_cache.popitem(last=False)
+
+        sources = []
+        for chunk in retrieved_chunks:
+            meta = chunk["metadata"]
+            sources.append({
+                "document_name": meta["document_name"],
+                "legal_domain":  meta.get("legal_domain", "general"),
+                "pub_year":      meta["pub_year"],
+                "namespace":     meta["namespace"],
+                "source_url":    meta["source_url"],
+                "relevance_score": float(chunk.get("relevance_score", chunk.get("faiss_score", 0.0)))
+            })
+
+        raw_provider = getattr(rag_chain, "provider", "gemini")
+        raw_model = getattr(rag_chain, "model_name", "gemini-3.6-flash")
+        provider = raw_provider if isinstance(raw_provider, str) else "gemini"
+        model_name = raw_model if isinstance(raw_model, str) else "gemini-3.6-flash"
+
+        if refused:
+            refusal_msg = "The indexed corpus does not contain sufficient information to answer this reliably. Please consult a qualified lawyer or refer to indiacode.nic.in."
+            latency_ms = int((time.time() - start_t) * 1000)
+            db_manager.save_message(uid, req.conversation_id, {
+                "role": "user", "content": req.question,
+                "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None
+            })
+            db_manager.save_message(uid, req.conversation_id, {
+                "role": "assistant", "content": refusal_msg,
+                "sources": sources, "confidence_score": confidence, "refused": True,
+                "namespace_searched": namespace_searched, "provider": provider, "model": model_name, "latency_ms": latency_ms
+            })
+            yield f"data: {json.dumps({'refused': True, 'answer': refusal_msg, 'done': True, 'sources': sources, 'confidence_score': confidence, 'latency_ms': latency_ms})}\n\n"
+            return
+
+        accumulated = []
+        try:
+            async for token in rag_chain.astream_run(req.question, retrieved_chunks, history_for_chain):
+                accumulated.append(token)
+                yield f"data: {json.dumps({'token': token, 'done': False})}\n\n"
+        except Exception as e:
+            print(f"[STREAM_RUN] Generation error: {e}")
+            err_msg = f"LLM generation error: {str(e)}"
+            yield f"data: {json.dumps({'token': f' [{err_msg}]', 'done': False})}\n\n"
+
+        raw_answer = "".join(accumulated)
+        verified_answer, _ = rag_chain.verify_citations(raw_answer, retrieved_chunks)
+        latency_ms = int((time.time() - start_t) * 1000)
+
+        db_manager.save_message(uid, req.conversation_id, {
+            "role": "user", "content": req.question,
+            "sources": [], "confidence_score": None, "refused": False, "namespace_searched": None
+        })
+        db_manager.save_message(uid, req.conversation_id, {
+            "role": "assistant", "content": verified_answer,
+            "sources": sources, "confidence_score": confidence, "refused": False,
+            "namespace_searched": namespace_searched, "provider": provider, "model": model_name, "latency_ms": latency_ms
+        })
+
+        yield f"data: {json.dumps({'done': True, 'answer': verified_answer, 'sources': sources, 'confidence_score': confidence, 'refused': False, 'latency_ms': latency_ms, 'provider': provider, 'model': model_name})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 @app.post("/query", response_model=QueryResponse)
 @limiter.limit(_query_rate_limit)
