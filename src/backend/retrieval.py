@@ -187,10 +187,21 @@ class LegalRAGPipeline:
         if not candidates:
             return []
 
-        # Ensure default relevance_score is set to faiss_score for all candidates first
+        # Calibrate fallback relevance_score for all candidates from FAISS/RRF:
+        # If Cohere fails or is disabled, the threshold gate (0.55) evaluates this calibrated score.
         for cand in candidates:
-            if "relevance_score" not in cand:
-                cand["relevance_score"] = float(cand.get("faiss_score", 0.0))
+            raw_faiss = float(cand.get("faiss_score", 0.0))
+            if raw_faiss <= 0.0 and "rrf_score" in cand:
+                # Top RRF hit is ~0.03. Scale to comparable cosine range [0.45, 0.75]
+                raw_faiss = min(0.75, cand["rrf_score"] * 25.0)
+            
+            # Map raw cosine score into calibrated confidence:
+            # Raw BGE-M3 cosine for relevant legal matches is typically 0.52 - 0.85.
+            if raw_faiss >= 0.50:
+                calibrated = min(0.95, 0.55 + (raw_faiss - 0.50) * 0.80)
+            else:
+                calibrated = max(0.0, raw_faiss * 0.88)
+            cand["relevance_score"] = float(calibrated)
 
         api_key = os.environ.get("COHERE_API_KEY", "").strip()
         use_cohere = os.environ.get("USE_COHERE_RERANK", "true").lower() == "true"

@@ -73,7 +73,7 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
    The mechanism for approaching the District Consumer Disputes Redressal Commission is Section 34 (jurisdiction) and Section 35 (manner of complaint). Section 18 pertains to the Central Authority's inquiry powers. Never cite Section 18 as the path for filing a consumer complaint at District level.
 
 3. Wage Disputes & Final Settlement (Code on Wages, 2019 vs Payment of Wages Act, 1936):
-   - Under Section 17(4) of the Code on Wages, 2019, where an employee is dismissed, retrenched, or resigns, all wages due MUST be paid within two working days of termination.
+   - Under Section 17(2) of the Code on Wages, 2019, where an employee has been removed, dismissed, retrenched, or has resigned from service, the wages payable to him MUST be paid within two working days of such removal, dismissal, retrenchment, or resignation.
    - Under Section 5(2) of the Payment of Wages Act, 1936, wages of a terminated employee must be paid within two working days.
    - Under Section 15 of the Payment of Wages Act, 1936 (and Section 45 of Code on Wages), an employee may file a claims application before the Labour Authority within 12 months for delayed or unpaid wages.
 
@@ -103,7 +103,11 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
 
 8. BNS vs IPC Section Numbering (CRITICAL ANTI-HALLUCINATION MANDATE):
    - The Bharatiya Nyaya Sanhita, 2023 (BNS) has only 358 sections (Sections 1 to 358). Any section > 358 or with letters (like 354A, 354C, 354D, 498A) DOES NOT EXIST in BNS and is a critical hallucination.
-   - NEVER take an old IPC section number and label it as "BNS".
+   - NEVER say "Section X BNS replaced Section X IPC" with the same number.
+     * Stalking under Section 78 BNS replaced Section 354D IPC (NEVER say it replaced Section 78 IPC, which was acts done by persons justified by law).
+     * Outraging modesty under Section 74 BNS replaced Section 354 IPC.
+     * Cheating under Section 318 BNS replaced Section 415/420 IPC.
+     * Extortion under Section 308 BNS replaced Section 383/384 IPC.
    - Key official BNS section mappings:
      * Stalking (including cyber/online monitoring of email, social media, internet): Section 78 BNS (formerly 354D IPC).
      * Sexual harassment: Section 75 BNS (formerly 354A IPC).
@@ -119,7 +123,17 @@ PRECISION RULES FOR COMMONLY MISAPPLIED PROVISIONS:
      * Defamation: Section 356 BNS (formerly 499/500 IPC).
      * Criminal intimidation: Section 351 BNS (formerly 503/506 IPC).
 
-9. Grounding Requirement for Criminal Sections:
+9. Tenancy Lockouts & Dispossession (Civil vs Criminal Remedies):
+   - Cutting off essential services (electricity, water) or locking gates is a civil violation of the covenant of quiet enjoyment under Section 108 of the Transfer of Property Act, 1882, and state rent control acts.
+   - An aggrieved tenant may seek an urgent temporary injunction from a Civil Court under Order 39 Rules 1 & 2 CPC for restoration of possession and restoration of utilities.
+   - Locking gates or blocking movement creates criminal liability for Wrongful Restraint (Section 126 BNS) or Wrongful Confinement (Section 127 BNS).
+   - NEVER cite Section 502 BNSS for civil tenancy or property restoration (Section 502 BNSS deals with custody of property during inquiry/trial). Police cannot act as a civil court to order eviction or restoration of tenancy without a judicial warrant.
+
+10. Zero FIR & Jurisdiction under Section 173(1) BNSS:
+   - Under Section 173(1) BNSS, a police station is legally bound to record information of a cognizable offence irrespective of territorial jurisdiction (Zero FIR).
+   - The recording police station transfers the Zero FIR to the competent jurisdictional police station for regular investigation; it does not retain territorial trial jurisdiction.
+
+11. Grounding Requirement for Criminal Sections:
    - When citing BNS, BNSS, or BSA sections, verify that the section number corresponds to the actual retrieved statute chunk. Never cite sections not present in the corpus.
 
 OUTPUT COMPLETENESS:
@@ -650,7 +664,7 @@ RULES:
 - For cyber offences / hacking / unauthorized access under the IT Act 2000: explicitly include Section 66 read with Section 43 ("If any person, dishonestly or fraudulently, does any act referred to in section 43 such as unauthorized access, downloading, copying or extracting data, or damaging computer system, punishable under Section 66 with imprisonment up to three years or fine up to five lakh rupees or both").
 - For audio recording, call recording, phone recording, CCTV footage, WhatsApp chat, or electronic evidence admissibility in court: explicitly cite Section 63 of the Bharatiya Sakshya Adhiniyam, 2023 (BSA 2023) (admissibility of electronic records and mandatory Section 63(4) certificate signed by the person in lawful control of the device).
 - For final salary, unpaid wages, delayed settlement, or termination payment timeline: explicitly cite Section 17(2) of the Code on Wages, 2019 (mandating that where an employee has been removed, dismissed, retrenched, or has resigned, wages payable must be paid within two working days).
-- You may invent plausible-sounding section references but keep them reasonable — the passage is ONLY used for semantic retrieval, NOT shown to the user.
+- Do NOT invent or guess random section numbers. Only cite specific anchor sections if you are 100% certain of the statutory numbering (e.g. Section 138 NI Act, Section 63 BSA, Section 173 BNSS, Section 308 BNS, Section 17(2) Code on Wages). Otherwise describe the offences, remedies, and statutory provisions by formal legal terminology and Act names without guessing section numbers.
 - NEVER cite IPC, CrPC, or Indian Evidence Act (repealed July 2024). Use BNS, BNSS, BSA instead.
 - Do NOT explain your reasoning. Output ONLY the passage itself.
 - Keep it under 100 words."""),
@@ -1004,31 +1018,6 @@ You can help with:
         Returns True if the query should bypass RAG and go to handle_conversational().
         """
         return LegalRAGChain.detect_query_intent(question) in ('SESSION_RECAP', 'CONVERSATIONAL')
-
-        # Very short messages (<=3 words) without a question mark
-        if len(q.split()) <= 3 and '?' not in q:
-            # Subset check: all words in the query must be pure greeting vocabulary.
-            # The earlier startswith() check was dropped — it caused false-positives
-            # for short legal queries like "ok bail", "sure FIR", "hi murder" where
-            # a greeting word appears as a prefix of a longer legal phrase.
-            words = set(re.findall(r'\b\w+\b', q))
-            if words.issubset({
-                'hi', 'hello', 'hey', 'hiya', 'howdy', 'thanks', 'ok', 'okay',
-                'bye', 'goodbye', 'great', 'cool', 'nice', 'sure', 'noted',
-                'understood', 'namaste', 'namaskar', 'alright', 'wow',
-                'good', 'morning', 'evening', 'afternoon', 'night', 'thank', 'you',
-            }):
-                return True
-        # What-can-you-do type queries
-        if re.search(
-            r'\b(what can you (do|help|answer)|what (do|can) you know|'
-            r'what (topics|areas|questions)|how (do|can) (i use|you work)|'
-            r'tell me about yourself|who are you|are you (a )?bot|'
-            r'what are you|what is nyaybot|how does this work)\b',
-            q
-        ):
-            return True
-        return False
 
     @staticmethod
     def _strip_section_numbers(text: str) -> str:
