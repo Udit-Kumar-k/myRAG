@@ -131,6 +131,17 @@ def route_query(query: str) -> str:
     banking_score  = get_score(BANKING_KEYWORDS)
     civil_score    = get_score(CIVIL_KEYWORDS)
 
+    # Special handling for hybrid Tenancy & Physical Force / Lockout / Criminal Trespass:
+    # When a query involves both civil property/tenancy and physical force/lockout,
+    # configure query router to retrieve from both general and criminal indexes simultaneously.
+    has_tenancy = any(k in q_lower for k in ["landlord", "tenant", "lease", "rent", "deposit", "evict", "eviction", "premises", "lessor", "lessee"])
+    has_physical_force = any(k in q_lower for k in [
+        "lock", "locked", "lockout", "gate", "cut off", "cutoff", "electricity", "water",
+        "force", "forced", "forcibly", "threat", "threatened", "assault", "beat", "trespass", "throw out", "threw out", "harass"
+    ])
+    if has_tenancy and has_physical_force:
+        return "general,criminal"
+
     # Special handling for online/OTP/phishing banking fraud:
     # If query involves digital attack vectors (OTP, SMS, link, phishing, hacked),
     # the governing penal statute is IT Act (cyber namespace), not banking regulations.
@@ -346,8 +357,12 @@ class LegalRAGPipeline:
         """
         # Determine which namespaces to search
         namespaces_to_search = []
-        if target_namespace == "all":
+        if isinstance(target_namespace, list):
+            namespaces_to_search = target_namespace
+        elif target_namespace == "all":
             namespaces_to_search = self.index_manager.namespaces
+        elif "," in target_namespace:
+            namespaces_to_search = [ns.strip() for ns in target_namespace.split(",") if ns.strip()]
         else:
             namespaces_to_search = [target_namespace]
 
