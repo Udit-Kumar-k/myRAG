@@ -11,11 +11,11 @@ marked.setOptions({
 });
 
 // Backend URL: set VITE_API_BASE_URL in .env (local) or Vercel dashboard (prod).
-// Uses relative path if VITE_API_BASE_URL is set to "" (e.g. Dockerfile / HF Spaces),
-// falling back to localhost:8001 only when VITE_API_BASE_URL is completely undefined.
-const API_BASE_URL = typeof import.meta.env.VITE_API_BASE_URL !== 'undefined'
+// Uses relative path if VITE_API_BASE_URL is "" or in production without explicit URL,
+// falling back to localhost:8001 only during local development.
+const API_BASE_URL = (typeof import.meta.env.VITE_API_BASE_URL !== 'undefined' && import.meta.env.VITE_API_BASE_URL !== '')
   ? import.meta.env.VITE_API_BASE_URL
-  : 'http://localhost:8001';
+  : (import.meta.env.PROD ? '' : 'http://localhost:8001');
 
 const NS_LABELS = {
   criminal: 'Criminal Law',
@@ -168,6 +168,8 @@ function App() {
       if (session) {
         setUser(prev => (prev?.id === session.user.id ? prev : session.user));
         setToken(session.access_token);
+      } else if (localStorage.getItem('nyaybot_guest_active') === 'true') {
+        enterWithoutLogin();
       }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -175,8 +177,8 @@ function App() {
         setUser(prev => (prev?.id === session.user.id ? prev : session.user));
         setToken(session.access_token);
       } else {
-        setUser(null);
-        setToken(null);
+        setUser(prev => (isGuestAuth(token, prev) ? prev : null));
+        setToken(prev => (isGuestAuth(prev) ? prev : null));
         initializedUserRef.current = null;
       }
     });
@@ -680,6 +682,7 @@ function App() {
       console.warn('Supabase anonymous sign-in not configured, using local guest mode:', e);
     }
     // 2. Reliable Device-Isolated Guest Mode (persisted in browser localStorage)
+    localStorage.setItem('nyaybot_guest_active', 'true');
     let guestId = localStorage.getItem('nyaybot_guest_id');
     if (!guestId) {
       guestId = 'guest_' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11));
@@ -701,6 +704,7 @@ function App() {
 
   const signOut = async () => {
     initializedUserRef.current = null;
+    localStorage.removeItem('nyaybot_guest_active');
     if (isGuest) {
       setUser(null);
       setToken(null);
