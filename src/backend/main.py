@@ -152,8 +152,8 @@ class DatabaseManager:
 
     def save_message(self, uid: str, conv_id: str, message: Dict[str, Any]):
         """Saves a message to Supabase PostgreSQL or local DB."""
-        # 1. Try Supabase write
-        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000":
+        # 1. Try Supabase write (bypass for guests and mock users)
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000" and not uid.startswith("guest_"):
             try:
                 # Derive title from first user message if available
                 title = f"Session {conv_id[:4].upper()}"
@@ -214,8 +214,8 @@ class DatabaseManager:
 
     def get_conversations(self, uid: str) -> List[Dict[str, Any]]:
         """Retrieves all conversation sessions for a user, sorted newest first."""
-        # 1. Try Supabase
-        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000":
+        # 1. Try Supabase (bypass for guests and mock users)
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000" and not uid.startswith("guest_"):
             try:
                 res = supabase.table("conversations")\
                               .select("id, title, updated_at, created_at")\
@@ -262,7 +262,7 @@ class DatabaseManager:
 
     def delete_conversation(self, uid: str, conv_id: str):
         """Deletes a conversation and its messages from Supabase or local DB."""
-        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000":
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000" and not uid.startswith("guest_"):
             try:
                 supabase.table("conversations").delete().eq("id", conv_id).eq("user_id", uid).execute()
                 return
@@ -286,8 +286,8 @@ class DatabaseManager:
 
     def get_history(self, uid: str, conv_id: str) -> List[Dict[str, Any]]:
         """Retrieves conversation history, sorted by created_at/timestamp."""
-        # 1. Try Supabase read
-        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
+        # 1. Try Supabase read (bypass for guests and mock users)
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000" and not uid.startswith("guest_"):
             try:
                 res = supabase.table("messages")\
                               .select("*")\
@@ -329,7 +329,8 @@ class DatabaseManager:
 
     def save_feedback(self, uid: str, feedback: Dict[str, Any]):
         """Saves user feedback on an answer to Supabase or local DB."""
-        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
+        # 1. Try Supabase (bypass for guests and mock users)
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true" and uid != "00000000-0000-0000-0000-000000000000" and not uid.startswith("guest_"):
             try:
                 supabase.table("feedback").insert({
                     "conversation_id": feedback.get("conversation_id"),
@@ -432,10 +433,18 @@ def authenticate_user(authorization: Optional[str] = Header(None)) -> str:
         print("[AUTH_FAILURE] missing or malformed Authorization header")
         raise HTTPException(status_code=401, detail="Invalid Authorization header format. Must be 'Bearer <token>'.")
 
-    token = authorization.split("Bearer ")[1]
+    token = authorization.split("Bearer ")[1].strip()
 
-    # Guest access and mock auth bypass
-    if token in ("guest-token", "mock-token") or os.environ.get("MOCK_AUTH", "false").lower() == "true":
+    # Per-browser Guest Access (e.g. "guest-token-guest_xyz..." or legacy "guest-token")
+    if token.startswith("guest-token"):
+        if token.startswith("guest-token-"):
+            raw_guest_id = token.replace("guest-token-", "").strip()
+            clean_id = re.sub(r'[^a-zA-Z0-9_-]', '', raw_guest_id)
+            if clean_id:
+                return f"guest_{clean_id}"
+        return f"guest_{mock_uuid}"
+
+    if token == "mock-token" or os.environ.get("MOCK_AUTH", "false").lower() == "true":
         return mock_uuid
 
     if not supabase:

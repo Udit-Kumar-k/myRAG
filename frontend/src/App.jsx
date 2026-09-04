@@ -33,9 +33,61 @@ const fetchWithTimeout = (url, opts = {}, ms = 120000) => {
     .finally(() => clearTimeout(id));
 };
 
+// ── Browser LocalStorage Helpers for Guest Chats ──────────
+const GUEST_CONVS_KEY = 'nyaybot_guest_conversations';
+const GUEST_MSG_PREFIX = 'nyaybot_guest_msgs_';
+
+const isGuestAuth = (t, u) => {
+  return Boolean(
+    (typeof t === 'string' && (t.startsWith('guest-token') || t === 'guest-token' || t === 'mock-token')) ||
+    (u?.id && String(u.id).startsWith('guest_'))
+  );
+};
+
+const getGuestConversations = () => {
+  try {
+    const raw = localStorage.getItem(GUEST_CONVS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveGuestConversations = (convs) => {
+  try {
+    localStorage.setItem(GUEST_CONVS_KEY, JSON.stringify(convs));
+  } catch (e) {
+    console.warn('Failed to save guest conversations to localStorage:', e);
+  }
+};
+
+const getGuestHistory = (convId) => {
+  try {
+    const raw = localStorage.getItem(`${GUEST_MSG_PREFIX}${convId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveGuestHistory = (convId, msgs) => {
+  try {
+    localStorage.setItem(`${GUEST_MSG_PREFIX}${convId}`, JSON.stringify(msgs));
+  } catch (e) {
+    console.warn('Failed to save guest history to localStorage:', e);
+  }
+};
+
+const deleteGuestHistory = (convId) => {
+  try {
+    localStorage.removeItem(`${GUEST_MSG_PREFIX}${convId}`);
+  } catch {}
+};
+
 function App() {
   const [user, setUser]           = useState(null);
   const [token, setToken]         = useState(null);
+  const isGuest = isGuestAuth(token, user);
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId]   = useState('');
   const [messages, setMessages]   = useState([]);
@@ -134,12 +186,17 @@ function App() {
   const loadHistoryFor = async (id, authToken) => {
     const t = authToken || token;
     if (!id || !t) return;
+    if (isGuestAuth(t, user)) {
+      const localMsgs = getGuestHistory(id);
+      setMessages(localMsgs);
+      return;
+    }
     setLoading(true);
     try {
       const r = await fetchWithTimeout(`${API_BASE_URL}/history/${id}`, {
         headers: { Authorization: `Bearer ${t}` }
       }, 10000);
-      if (r.status === 401 && t !== 'guest-token') {
+      if (r.status === 401 && !isGuestAuth(t, user)) {
         await supabase.auth.signOut();
         return;
       }
@@ -175,6 +232,20 @@ function App() {
   const loadConversations = async (authToken) => {
     const t = authToken || token;
     if (!t) return;
+    if (isGuestAuth(t, user)) {
+      const localConvs = getGuestConversations();
+      if (localConvs.length > 0) {
+        sessionCounterRef.current = localConvs.length;
+        setConversations(localConvs);
+        const firstId = localConvs[0].id;
+        setActiveConvId(firstId);
+        const localMsgs = getGuestHistory(firstId);
+        setMessages(localMsgs);
+        return;
+      }
+      startNew(true);
+      return;
+    }
     try {
       const r = await fetchWithTimeout(`${API_BASE_URL}/conversations`, {
         headers: { Authorization: `Bearer ${t}` }
@@ -183,6 +254,7 @@ function App() {
         const data = await r.json();
         const serverConvs = data.conversations || [];
         if (serverConvs.length > 0) {
+          sessionCounterRef.current = serverConvs.length;
           setConversations(serverConvs);
           const firstId = serverConvs[0].id;
           setActiveConvId(firstId);
@@ -247,13 +319,24 @@ function App() {
   };
 
   // ── Sessions ────────────────────────────────────────────
-  const startNew = () => {
+  const startNew = (asInitialGuest = false) => {
     sessionCounterRef.current += 1;
     const id = `conv_${Math.random().toString(36).substring(2, 9)}`;
     const title = `Session ${sessionCounterRef.current}`;
-    setConversations(prev => [{ id, title, ts: Date.now() }, ...prev]);
+    setConversations(prev => {
+      const updated = [{ id, title, ts: Date.now() }, ...(asInitialGuest ? [] : prev)];
+      if (isGuest || asInitialGuest) {
+        saveGuestConversations(updated);
+      }
+      return updated;
+    });
+    if (isGuest || asInitialGuest) {
+      saveGuestHistory(id, []);
+    }
     // Save current draft before clearing
-    draftRef.current[activeConvId] = inputValue;
+    if (activeConvId) {
+      draftRef.current[activeConvId] = inputValue;
+    }
     setActiveConvId(id);
     setMessages([]);
     setInputValue('');
@@ -266,6 +349,18 @@ function App() {
     const remaining = conversations.filter(c => c.id !== id);
     setConversations(remaining);
     delete draftRef.current[id];
+
+    if (isGuest) {
+      saveGuestConversations(remaining);
+      deleteGuestHistory(id);
+    } else if (token) {
+      // Delete from database in background
+      fetchWithTimeout(`${API_BASE_URL}/conversations/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      }, 5000).catch(() => {});
+    }
+
     if (id === activeConvId) {
       // Switch to the first remaining session
       const nextConv = remaining[0];
@@ -276,13 +371,6 @@ function App() {
         setActiveConvId('');
         setInputValue('');
       }
-    }
-    // Delete from database in background
-    if (token) {
-      fetchWithTimeout(`${API_BASE_URL}/conversations/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      }, 5000).catch(() => {});
     }
   };
 
@@ -309,20 +397,31 @@ function App() {
     const convIdAtSubmit = activeConvId;
     setInputValue('');
     draftRef.current[convIdAtSubmit] = '';
-    setConversations(prev => prev.map(c => {
-      if (c.id === convIdAtSubmit && (c.title.startsWith('Session ') || c.title.startsWith('Session_'))) {
-        const shortTitle = q.length > 28 ? q.substring(0, 28) + '...' : q;
-        return { ...c, title: shortTitle };
+    setConversations(prev => {
+      const updated = prev.map(c => {
+        if (c.id === convIdAtSubmit && (c.title.startsWith('Session ') || c.title.startsWith('Session_'))) {
+          const shortTitle = q.length > 28 ? q.substring(0, 28) + '...' : q;
+          return { ...c, title: shortTitle };
+        }
+        return c;
+      });
+      if (isGuest) {
+        saveGuestConversations(updated);
       }
-      return c;
-    }));
+      return updated;
+    });
+
+    const userMsg = { role: 'user', content: q };
+    const placeholderMsg = { role: 'assistant', content: '', sources: [], confidenceScore: null, refused: false, isStreaming: true };
 
     // Append user message and streaming assistant placeholder
-    setMessages(prev => [
-      ...prev,
-      { role: 'user', content: q },
-      { role: 'assistant', content: '', sources: [], confidenceScore: null, refused: false, isStreaming: true }
-    ]);
+    setMessages(prev => {
+      const nextMsgs = [...prev, userMsg, placeholderMsg];
+      if (isGuest) {
+        saveGuestHistory(convIdAtSubmit, [...prev, userMsg]);
+      }
+      return nextMsgs;
+    });
     setLoading(true);
 
     abortRef.current = new AbortController();
@@ -345,7 +444,7 @@ function App() {
 
       if (r.status === 401) {
         clearTimeout(timeoutId);
-        if (token !== 'guest-token') await supabase.auth.signOut();
+        if (!isGuest) await supabase.auth.signOut();
         return;
       }
 
@@ -382,6 +481,9 @@ function App() {
                         refused: parsed.refused || false,
                         isStreaming: false,
                       };
+                    }
+                    if (isGuest) {
+                      saveGuestHistory(convIdAtSubmit, updated);
                     }
                     return updated;
                   });
@@ -432,7 +534,7 @@ function App() {
         }).finally(() => clearTimeout(timeoutId2));
 
         if (fb.status === 401) {
-          if (token !== 'guest-token') await supabase.auth.signOut();
+          if (!isGuest) await supabase.auth.signOut();
           return;
         }
         if (fb.ok) {
@@ -450,6 +552,9 @@ function App() {
                 isStreaming: false,
               };
             }
+            if (isGuest) {
+              saveGuestHistory(convIdAtSubmit, updated);
+            }
             return updated;
           });
         } else {
@@ -465,6 +570,9 @@ function App() {
                 confidenceScore: 0,
                 isStreaming: false,
               };
+            }
+            if (isGuest) {
+              saveGuestHistory(convIdAtSubmit, updated);
             }
             return updated;
           });
@@ -482,6 +590,9 @@ function App() {
               confidenceScore: 0,
               isStreaming: false,
             };
+          }
+          if (isGuest) {
+            saveGuestHistory(convIdAtSubmit, updated);
           }
           return updated;
         });
@@ -568,13 +679,18 @@ function App() {
     } catch (e) {
       console.warn('Supabase anonymous sign-in not configured, using local guest mode:', e);
     }
-    // 2. Reliable Guest Mode
+    // 2. Reliable Device-Isolated Guest Mode (persisted in browser localStorage)
+    let guestId = localStorage.getItem('nyaybot_guest_id');
+    if (!guestId) {
+      guestId = 'guest_' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11));
+      localStorage.setItem('nyaybot_guest_id', guestId);
+    }
     setUser({
-      id: '00000000-0000-0000-0000-000000000000',
+      id: guestId,
       email: 'guest@nyaybot.local',
       user_metadata: { full_name: 'Guest User' }
     });
-    setToken('guest-token');
+    setToken(`guest-token-${guestId}`);
     setAuthLoading(false);
   };
 
@@ -585,7 +701,7 @@ function App() {
 
   const signOut = async () => {
     initializedUserRef.current = null;
-    if (token === 'guest-token' || token === 'mock-token') {
+    if (isGuest) {
       setUser(null);
       setToken(null);
     } else {
