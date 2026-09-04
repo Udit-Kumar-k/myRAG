@@ -83,9 +83,29 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI Web Application
 app = FastAPI(title="NyayBot API", version="2.0.0", lifespan=lifespan)
 
-# Rate limiter — keyed on remote IP address
+def get_client_ip(request: Request) -> str:
+    """
+    Extracts the client's actual remote IP behind reverse proxies (Hugging Face Spaces, Cloudflare, etc.).
+    Falls back to slowapi's default get_remote_address if no forwarding headers are present.
+    """
+    # 1. Cloudflare connecting IP
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip and cf_ip.strip():
+        return cf_ip.strip()
+    
+    # 2. X-Forwarded-For: leftmost IP is the original client
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0].strip()
+        if client_ip:
+            return client_ip
+
+    # 3. Standard remote address fallback
+    return get_remote_address(request)
+
+# Rate limiter — proxy-aware key extractor
 _query_rate_limit = os.environ.get("QUERY_RATE_LIMIT", "10/minute")
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_client_ip)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -366,7 +386,11 @@ class DatabaseManager:
             print(f"Failed to save feedback to local DB: {e}")
 
     def get_telemetry(self) -> Dict[str, Any]:
-        """Calculates query drift, refusal rates, confidence, and namespace metrics."""
+        """Calculates query drift, refusal rates, confidence, and namespace metrics.
+        
+        Aggregates from both Supabase (authenticated users) and local_db.json
+        (guest users / fallback), merging both into a unified telemetry view.
+        """
         total_queries = 0
         refused_queries = 0
         conf_scores = []
@@ -374,6 +398,36 @@ class DatabaseManager:
         provider_counts: Dict[str, int] = {}
         feedback_counts = {"thumbs_up": 0, "thumbs_down": 0, "flag": 0}
 
+        # 1. Try Supabase aggregation for authenticated user metrics
+        if supabase and os.environ.get("MOCK_AUTH", "false").lower() != "true":
+            try:
+                # Fetch assistant messages for query metrics
+                msg_res = supabase.table("messages") \
+                    .select("refused, confidence, namespace_searched, role") \
+                    .eq("role", "assistant") \
+                    .execute()
+                for row in (msg_res.data or []):
+                    total_queries += 1
+                    if row.get("refused", False):
+                        refused_queries += 1
+                    c = row.get("confidence")
+                    if c is not None:
+                        conf_scores.append(float(c))
+                    ns = row.get("namespace_searched", "unknown")
+                    ns_counts[ns] = ns_counts.get(ns, 0) + 1
+
+                # Fetch feedback ratings
+                fb_res = supabase.table("feedback") \
+                    .select("rating") \
+                    .execute()
+                for row in (fb_res.data or []):
+                    r = row.get("rating", "other")
+                    feedback_counts[r] = feedback_counts.get(r, 0) + 1
+
+            except Exception as e:
+                print(f"Supabase telemetry query error: {e}. Including local metrics only.")
+
+        # 2. Merge local_db.json metrics (guest users, fallback, offline usage)
         try:
             with open(self.local_db_path, "r") as f:
                 data = json.load(f)
@@ -399,7 +453,7 @@ class DatabaseManager:
                                 prov = m.get("provider", "unknown")
                                 provider_counts[prov] = provider_counts.get(prov, 0) + 1
         except Exception as e:
-            print(f"Error calculating telemetry: {e}")
+            print(f"Error calculating local telemetry: {e}")
 
         avg_conf = float(sum(conf_scores) / len(conf_scores)) if conf_scores else 0.0
         refusal_rate = float(refused_queries / total_queries) if total_queries else 0.0
@@ -884,8 +938,11 @@ def submit_feedback(req: FeedbackRequest, uid: str = Depends(authenticate_user))
 @app.get("/telemetry")
 def get_telemetry_metrics(uid: str = Depends(authenticate_user)):
     """Returns query drift metrics, refusal rates, confidence, and namespace stats.
-    Requires authentication to prevent system fingerprinting by external parties.
+    Requires an authenticated account (blocks guest tokens) to prevent system
+    fingerprinting and data disclosure.
     """
+    if uid.startswith("guest_"):
+        raise HTTPException(status_code=403, detail="Telemetry metrics are restricted to authenticated accounts.")
     return db_manager.get_telemetry()
 
 @app.get("/conversations")

@@ -147,6 +147,12 @@ def route_query(query: str) -> str:
     if has_tenancy and has_physical_force:
         return "general,criminal"
 
+    # Special handling for hybrid Cyber & Extortion / Blackmail (Sec 308 BNS + Sec 66E/67 IT Act):
+    is_extortion = any(k in q_lower for k in ["extort", "extortion", "blackmail", "blackmailed", "demanding money", "threat to leak", "threatened to post"])
+    is_digital_media = any(k in q_lower for k in ["photos", "images", "video", "whatsapp", "instagram", "facebook", "telegram", "online", "morphed"])
+    if is_extortion and is_digital_media:
+        return "cyber,criminal"
+
     # Special handling for online/OTP/phishing banking fraud:
     # If query involves digital attack vectors (OTP, SMS, link, phishing, hacked),
     # the governing penal statute is IT Act (cyber namespace), not banking regulations.
@@ -170,6 +176,38 @@ def route_query(query: str) -> str:
         return "all"
 
     return tied[0]
+
+
+def is_direct_statutory_query(query: str, history: Optional[List[Any]] = None) -> bool:
+    """
+    Determines if a query already contains explicit statutory anchors (e.g. section numbers,
+    exact act names) such that LLM HyDE expansion can be safely bypassed for near-instant retrieval.
+    Follow-up queries with history NEVER skip HyDE because they require referential resolution.
+    """
+    if history:
+        return False
+    q = query.strip().lower()
+
+    # Explicit section reference (e.g. "Section 138", "Sec. 308", "u/s 66D", "s. 17(2)")
+    has_explicit_sec = bool(re.search(r'\b(?:section|sec|u/s|s\.)\s*\d+[a-z]?(?:\(\d+\))?\b', q))
+    if has_explicit_sec:
+        return True
+
+    # Explicit recognized statutory enactments
+    statute_indicators = [
+        "negotiable instruments act", "consumer protection act",
+        "bharatiya nyaya sanhita", "bharatiya nagarik suraksha",
+        "bharatiya sakshya adhiniyam", "information technology act",
+        "payment of wages act", "code on wages", "transfer of property act",
+        "domestic violence act", "pwdva", "hindu succession act", "pocso act",
+        "prevention of corruption act", "industrial disputes act", "rera",
+        "it act 2000", "cpa 2019", "ni act", "bns 2023", "bnss 2023", "bsa 2023"
+    ]
+    if any(act in q for act in statute_indicators):
+        return True
+
+    return False
+
 
 class LegalRAGPipeline:
     def __init__(self, index_manager: LegalIndexManager, confidence_threshold: float = 0.55):
@@ -503,19 +541,25 @@ class LegalRAGPipeline:
             "retrieved_chunks": List[Dict[str, Any]]
         }
         """
-        # Step 1: Query Expansion / HyDE (translate colloquial user text to statutory terms)
+        # Step 1: Query Expansion / HyDE decision
+        # Direct statutory queries skip HyDE initially (Fast-Path) to cut latency by ~2-3s and save 50% API tokens.
+        is_fast_path = is_direct_statutory_query(query_text, history=history)
         expanded_query = query_text
-        try:
-            from src.backend.chain import LegalRAGChain
-            provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
-            api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("GEMINI_API_KEY")
-            if api_key:
-                chain = LegalRAGChain()
-                expanded_query = chain.expand_query(query_text, history=history)
-                print(f"Original query: {query_text.encode('ascii', 'replace').decode('ascii')}")
-                print(f"Expanded query: {expanded_query.encode('ascii', 'replace').decode('ascii')}")
-        except Exception as e:
-            print(f"Query expansion failed or skipped: {e}")
+
+        if is_fast_path:
+            print(f"[FAST-PATH] Direct statutory query detected — skipping HyDE expansion: '{query_text[:60]}'")
+        else:
+            try:
+                from src.backend.chain import LegalRAGChain
+                provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
+                api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("GEMINI_API_KEY")
+                if api_key:
+                    chain = LegalRAGChain()
+                    expanded_query = chain.expand_query(query_text, history=history)
+                    print(f"Original query: {query_text.encode('ascii', 'replace').decode('ascii')}")
+                    print(f"Expanded query: {expanded_query.encode('ascii', 'replace').decode('ascii')}")
+            except Exception as e:
+                print(f"Query expansion failed or skipped: {e}")
 
         # Step 2: Domain Routing
         # The user's explicit query has highest priority.
@@ -594,6 +638,30 @@ class LegalRAGPipeline:
                     namespace = "cyber (fallback)"
                 else:
                     print(f"[Cyber fallback] Original result retained.")
+
+        # Step 4c: Fast-Path Fallback to HyDE
+        # If fast-path was used but confidence remained below threshold, invoke HyDE
+        # as a safety net before refusing.
+        if confidence < self.confidence_threshold and is_fast_path:
+            print(f"[FAST-PATH FALLBACK] Fast-path confidence {confidence:.4f} < gate; triggering HyDE expansion fallback.")
+            try:
+                from src.backend.chain import LegalRAGChain
+                provider = os.environ.get("LLM_PROVIDER", "gemini").lower()
+                api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("GEMINI_API_KEY")
+                if api_key:
+                    chain = LegalRAGChain()
+                    hyde_query = chain.expand_query(query_text, history=history)
+                    fb_candidates = self.retrieve(hyde_query, target_namespace=namespace, top_n=20)
+                    if fb_candidates:
+                        fb_top_chunks = self.rerank_with_cohere(hyde_query, fb_candidates, top_n=5)
+                        fb_top_chunks = self._filter_irrelevant_chunks(fb_top_chunks, namespace, query_text.lower())
+                        fb_conf = fb_top_chunks[0].get("relevance_score", 0.0) if fb_top_chunks else 0.0
+                        if fb_conf > confidence:
+                            print(f"[FAST-PATH FALLBACK] HyDE fallback improved confidence: {confidence:.4f} -> {fb_conf:.4f}")
+                            top_chunks = fb_top_chunks
+                            confidence = fb_conf
+            except Exception as e:
+                print(f"[FAST-PATH FALLBACK] HyDE fallback failed: {e}")
 
         # Step 5: Confidence Gate
         refused = confidence < self.confidence_threshold

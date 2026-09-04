@@ -1,4 +1,5 @@
 import os
+import re as _re
 from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -131,7 +132,7 @@ class LegalRAGChain:
                 self.model_name = env_model
             else:
                 self.model_name = (
-                    "gemini-3.6-flash" if self.provider == "gemini" else "openai/gpt-oss-120b"
+                    "gemini-3.6-flash" if self.provider == "gemini" else "llama-3.3-70b-versatile"
                 )
         else:
             self.model_name = model_name
@@ -140,7 +141,7 @@ class LegalRAGChain:
         if self.provider == "gemini" and ("openai" in self.model_name.lower() or "gpt" in self.model_name.lower() or "llama" in self.model_name.lower() or "groq" in self.model_name.lower() or "qwen" in self.model_name.lower()):
             self.model_name = "gemini-3.6-flash"
         elif self.provider == "groq" and "gemini" in self.model_name.lower():
-            self.model_name = "openai/gpt-oss-120b"
+            self.model_name = "llama-3.3-70b-versatile"
 
         self._llm = None
         self._chain = None
@@ -246,13 +247,17 @@ class LegalRAGChain:
         return False
 
     @classmethod
-    def verify_citations(cls, answer: str, context_chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
+    def verify_citations(cls, answer: str, context_chunks: List[Dict[str, Any]], is_stream_segment: bool = False) -> Tuple[str, List[str]]:
         """
         Robust domain-agnostic post-generation citation verifier:
         1. Extracts (Section Number, Act Name) pairs and standalone Act names from answer text.
         2. Verifies whether cited Acts and Sections co-occur in retrieved context chunks.
         3. Strips unverified section numbers directly inline from body text (preventing confident fabrications in body text).
         4. Redacts fabricated state-amendment modifications (e.g. Telangana Amendment).
+
+        When is_stream_segment=True, trailing whitespace and paragraph collapsing
+        are preserved so that independently verified stream chunks concatenate
+        cleanly without losing inter-segment spacing.
         """
         if not context_chunks or not answer:
             return answer, []
@@ -367,14 +372,15 @@ class LegalRAGChain:
         answer = re.sub(r'[^\S\r\n]+', ' ', answer)
         # Collapse 3+ consecutive blank lines to standard paragraph breaks
         answer = re.sub(r'\n{3,}', '\n\n', answer)
-        answer = answer.strip()
+        if not is_stream_segment:
+            answer = answer.strip()
         return answer, unverified_claims
 
     def _get_fallback_llms(self, max_tokens: int = 1536):
         """
         Yields fallback Chat models in priority order across providers and models.
         Guarantees that if one provider or model hits its daily quota (e.g. Gemini 20 req/day
-        or Groq qwen3.8-27b 200k TPD), alternate models with independent token buckets are tried.
+        or Groq llama-3.3-70b-versatile 200k TPD), alternate models with independent token buckets are tried.
         """
         # 1. Cross-provider fallback
         if self.provider == "groq" and self.gemini_key:
@@ -390,7 +396,7 @@ class LegalRAGChain:
         elif self.provider == "gemini" and self.groq_key:
             try:
                 from langchain_groq import ChatGroq
-                groq_model = os.environ.get("FALLBACK_MODEL", "qwen/qwen3.8-27b")
+                groq_model = os.environ.get("FALLBACK_MODEL", "llama-3.3-70b-versatile")
                 yield ("groq", groq_model, ChatGroq(
                     model=groq_model, api_key=self.groq_key,
                     temperature=0.0, max_tokens=max_tokens
@@ -401,7 +407,7 @@ class LegalRAGChain:
         # 2. Alternate Groq models (each model has its own independent token quota on Groq)
         if self.groq_key:
             from langchain_groq import ChatGroq
-            alt_models = ["groq/compound-mini", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+            alt_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-8b"]
             for model_id in alt_models:
                 if self.provider == "groq" and self.model_name == model_id:
                     continue
@@ -442,13 +448,74 @@ class LegalRAGChain:
         verified_answer, _ = self.verify_citations(raw_answer, context_chunks)
         return verified_answer
 
+    # Clause-boundary regex for splitting streamed text into verifiable segments.
+    # Matches sentence ends, paragraph breaks, list items, and semicolons,
+    # but avoids false splits on legal abbreviations (Sec., s., No., Art., v.).
+    _CLAUSE_BOUNDARY = _re.compile(
+        r'(?<![Ss]ec)(?<![Aa]rt)(?<!\bv)(?<!\b[Nn]o)(?<!\bs)'
+        r'(\. (?=[A-Z\d*\-•])|\?\s+|!\s+|\n\n|\n[*\-]\s+|\n\d+\.\s+|;\s+|\.\n)'
+    )
+
+    async def _astream_with_verification(
+        self,
+        raw_token_stream,
+        context_chunks: List[Dict[str, Any]],
+    ):
+        """
+        Internal helper: buffers raw tokens from an LLM astream, splits at
+        clause/sentence boundaries, runs verify_citations on each segment,
+        then yields verified text.  Guarantees CHECK 0 IPC-to-BNS rewrites
+        fire before any token reaches the client.
+        """
+        buffer = ""
+        async for token in raw_token_stream:
+            if not token:
+                continue
+            buffer += token
+
+            # Only attempt to split once we have a reasonable chunk of text
+            if len(buffer) < 80:
+                continue
+
+            # Find the last clause boundary in the buffer
+            parts = self._CLAUSE_BOUNDARY.split(buffer)
+            if len(parts) <= 1:
+                # No boundary found yet — keep buffering
+                if len(buffer) > 600:
+                    # Safety valve: yield what we have to avoid unbounded buffering
+                    verified, _ = self.verify_citations(buffer, context_chunks, is_stream_segment=True)
+                    yield verified
+                    buffer = ""
+                continue
+
+            # Rejoin all parts except the last part (which is an incomplete clause)
+            # parts comes as [text, delim, text, delim, ..., trailing_text]
+            # We want to yield everything up to and including the last delimiter,
+            # and keep the trailing incomplete text in the buffer.
+            complete = "".join(parts[:-1])
+            remainder = parts[-1]
+
+            verified, _ = self.verify_citations(complete, context_chunks, is_stream_segment=True)
+            yield verified
+            buffer = remainder
+
+        # Flush remaining buffer
+        if buffer:
+            verified, _ = self.verify_citations(buffer, context_chunks, is_stream_segment=True)
+            yield verified
+
     async def astream_run(
         self,
         question: str,
         context_chunks: List[Dict[str, Any]],
         history: List[Any] = []
     ):
-        """Asynchronously streams answer tokens from the chain with multi-tier fallback."""
+        """
+        Asynchronously streams answer tokens from the chain with multi-tier fallback.
+        Each yielded segment has already been passed through verify_citations
+        (including CHECK 0 IPC-to-BNS corrections) so the client never renders
+        unverified citation text.
+        """
         self._init_llm()
         context_str = format_context(context_chunks)
         inputs = {
@@ -458,18 +525,20 @@ class LegalRAGChain:
         }
         chain = self.get_chain()
         try:
-            async for token in chain.astream(inputs):
-                if token:
-                    yield token
+            async for verified_segment in self._astream_with_verification(
+                chain.astream(inputs), context_chunks
+            ):
+                yield verified_segment
         except Exception as e:
             print(f"Primary astream failed ({e}). Attempting fallback streaming...")
             for prov, model_id, fb_llm in self._get_fallback_llms(max_tokens=1536):
                 try:
                     print(f"[Astream Fallback] Attempting {prov} model: {model_id}")
                     fb_chain = self.get_prompt() | fb_llm | StrOutputParser()
-                    async for token in fb_chain.astream(inputs):
-                        if token:
-                            yield token
+                    async for verified_segment in self._astream_with_verification(
+                        fb_chain.astream(inputs), context_chunks
+                    ):
+                        yield verified_segment
                     return
                 except Exception as fb_err:
                     print(f"[{prov}/{model_id}] astream fallback failed: {fb_err}")
@@ -716,7 +785,7 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
             if self.groq_key:
                 try:
                     from langchain_groq import ChatGroq
-                    groq_exp_llm = ChatGroq(model="qwen/qwen3.8-27b", api_key=self.groq_key, temperature=0.0)
+                    groq_exp_llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=self.groq_key, temperature=0.0)
                     fb_chain = prompt | groq_exp_llm | StrOutputParser()
                     raw_output = fb_chain.invoke({"question": question}).strip()
                     return self._strip_section_numbers(raw_output)
@@ -867,16 +936,36 @@ You can help with:
 
         # 3. Follow-up / referential question
         if has_prior_history:
+            # Pattern A: Standard follow-up starters
             if re.search(
                 r'^\s*(what\s+about\s+(it|that|this|them|those|the\s+same)\b|'
                 r'what\s+is\s+its\s+\w+|what\s+are\s+its\s+\w+|'
                 r'and\s+the\s+\w+\s+(for|of|in|on)\s+(it|that|this|them)\b|'
                 r'what\s+if\b|can\s+they\s+also\b|is\s+it\s+(bailable|cognizable|compoundable)\b|'
                 r'what\s+is\s+the\s+punishment\s+for\s+(that|this|it)\b|'
-                r'how\s+to\s+apply\s+for\s+(it|that)\b|where\s+do\s+i\s+file\s+(it|that)\b|'
-                r'in\s+(this|that)\s+case|you\s+(mentioned|said)|'
+                r'how\s+to\s+apply\s+for\s+(it|that|this)\b|where\s+do\s+i\s+file\s+(it|that|this)\b|'
+                r'in\s+(this|that|such)\s+(case|situation|scenario)\b|you\s+(mentioned|said)|'
                 r'explain\s+(that|further|more|in\s+simple)|be\s+more\s+clear|'
                 r'what\s+does\s+that\s+mean)\b',
+                q
+            ):
+                return 'FOLLOW_UP'
+
+            # Pattern B: Referential anaphora, contextual follow-up inquiries
+            if re.search(
+                r'\b(in\s+such\s+cases?|in\s+this\s+scenario|in\s+that\s+scenario|'
+                r'for\s+this\s+(offence|offense|crime|matter|dispute|claim)|'
+                r'for\s+that\s+(offence|offense|crime|matter|dispute)|'
+                r'can\s+the\s+police\s+(arrest|seize|investigate|refuse)|'
+                r'can\s+they\s+(also\s+)?(arrest|seize|take|refuse|demand|do\s+that)|'
+                r'can\s+(the|my)\s+(landlord|employer|boss|bank|tenant)\s+(do\s+(this|that)|refuse|demand)|'
+                r'what\s+is\s+the\s+(limitation\s+period|time\s+limit|procedure\s+to\s+file)|'
+                r'how\s+long\s+do\s+i\s+have\s+to\s+(file|report|claim)|'
+                r'who\s+should\s+i\s+send\s+the\s+notice\s+to|'
+                r'where\s+can\s+i\s+report\s+(this|it)|'
+                r'to\s+file\s+(this|it|a\s+complaint)|'
+                r'how\s+do\s+i\s+(complain|file\s+this|escalate\s+this)|'
+                r'what\s+if\s+(they|he|she)\s+refuses?)\b',
                 q
             ):
                 return 'FOLLOW_UP'

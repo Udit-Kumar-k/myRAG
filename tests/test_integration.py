@@ -184,6 +184,32 @@ class TestIntegrationEndpoints(unittest.TestCase):
         self.assertIn(authenticate_user, dep_fns,
             "get_telemetry_metrics must depend on authenticate_user")
 
+    def test_telemetry_blocks_guest_user(self):
+        # Guests should be blocked from seeing sensitive telemetry metrics
+        response = client.get("/telemetry", headers={"Authorization": "Bearer guest-token-test1234"})
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("detail", response.json())
+
+    def test_get_client_ip_headers(self):
+        from src.backend.main import get_client_ip
+        from starlette.requests import Request
+
+        # 1. Cloudflare header
+        scope_cf = {
+            "type": "http",
+            "headers": [(b"cf-connecting-ip", b"198.51.100.4")]
+        }
+        req_cf = Request(scope_cf)
+        self.assertEqual(get_client_ip(req_cf), "198.51.100.4")
+
+        # 2. X-Forwarded-For multi-hop (leftmost is original client)
+        scope_xff = {
+            "type": "http",
+            "headers": [(b"x-forwarded-for", b"203.0.113.195, 70.41.3.18, 10.0.0.1")]
+        }
+        req_xff = Request(scope_xff)
+        self.assertEqual(get_client_ip(req_xff), "203.0.113.195")
+
     @patch("src.backend.main.rag_pipeline")
     @patch("src.backend.main.rag_chain")
     def test_stream_query_endpoint(self, mock_chain, mock_pipeline):

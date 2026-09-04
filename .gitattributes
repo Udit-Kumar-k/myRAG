@@ -12,7 +12,7 @@
 # store them in LFS because of the rules below.
 
 # FAISS indexes
-data/indexes/*.faiss
+data/indexes/*.faiss filter=lfs diff=lfs merge=lfs -text
 data/indexes/*.index filter=lfs diff=lfs merge=lfs -text
 
 # Chunk metadata and BM25 pickles

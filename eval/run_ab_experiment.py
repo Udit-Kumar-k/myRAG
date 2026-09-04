@@ -129,7 +129,7 @@ def evaluate_config(pipeline: Any, chain: Any, config_num: int) -> Dict[str, Any
         
         if provider == "groq":
             from langchain_groq import ChatGroq
-            eval_model = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
+            eval_model = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
             evaluator_llm = ChatGroq(
                 model=eval_model,
                 groq_api_key=api_key,

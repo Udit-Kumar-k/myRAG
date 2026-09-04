@@ -114,9 +114,9 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
     {
         "id": "consumer_03",
         "category": "consumer",
-        "question": "Can a landlord refuse to return a tenant's security deposit?",
+        "question": "Can a consumer seek a replacement or refund for a deficient service under the Consumer Protection Act?",
         "expected_namespace": "consumer",
-        "ground_truth_keywords": ["landlord", "tenant", "deposit", "refund", "rent"]
+        "ground_truth_keywords": ["deficiency", "service", "refund", "consumer", "commission"]
     },
     {
         "id": "consumer_04",
@@ -142,7 +142,7 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "ground_truth_keywords": ["RBI", "digital payment", "fraud", "liability", "unauthorized"]
     },
 
-    # ── General / Cross-domain (2) ──────────────────────────────────────────
+    # ── General / Cross-domain (3) ──────────────────────────────────────────
     {
         "id": "general_01",
         "category": "general",
@@ -156,6 +156,13 @@ EVAL_QUERIES: List[Dict[str, Any]] = [
         "question": "What is the punishment for cheating by personation under BNS?",
         "expected_namespace": "criminal",
         "ground_truth_keywords": ["cheating", "personation", "BNS", "punished"]
+    },
+    {
+        "id": "general_03",
+        "category": "general",
+        "question": "Can a landlord refuse to return a tenant's security deposit under property law?",
+        "expected_namespace": "general",
+        "ground_truth_keywords": ["landlord", "tenant", "deposit", "lease", "transfer of property"]
     }
 ]
 
