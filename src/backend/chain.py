@@ -132,7 +132,7 @@ class LegalRAGChain:
                 self.model_name = env_model
             else:
                 self.model_name = (
-                    "gemini-3.6-flash" if self.provider == "gemini" else "llama-3.3-70b-versatile"
+                    "gemini-3.6-flash" if self.provider == "gemini" else "openai/gpt-oss-120b"
                 )
         else:
             self.model_name = model_name
@@ -141,7 +141,7 @@ class LegalRAGChain:
         if self.provider == "gemini" and ("openai" in self.model_name.lower() or "gpt" in self.model_name.lower() or "llama" in self.model_name.lower() or "groq" in self.model_name.lower() or "qwen" in self.model_name.lower()):
             self.model_name = "gemini-3.6-flash"
         elif self.provider == "groq" and "gemini" in self.model_name.lower():
-            self.model_name = "llama-3.3-70b-versatile"
+            self.model_name = "openai/gpt-oss-120b"
 
         self._llm = None
         self._chain = None
@@ -396,7 +396,7 @@ class LegalRAGChain:
         elif self.provider == "gemini" and self.groq_key:
             try:
                 from langchain_groq import ChatGroq
-                groq_model = os.environ.get("FALLBACK_MODEL", "llama-3.3-70b-versatile")
+                groq_model = os.environ.get("FALLBACK_MODEL", "groq/compound-mini")
                 yield ("groq", groq_model, ChatGroq(
                     model=groq_model, api_key=self.groq_key,
                     temperature=0.0, max_tokens=max_tokens
@@ -407,7 +407,7 @@ class LegalRAGChain:
         # 2. Alternate Groq models (each model has its own independent token quota on Groq)
         if self.groq_key:
             from langchain_groq import ChatGroq
-            alt_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-8b"]
+            alt_models = ["openai/gpt-oss-120b", "groq/compound-mini", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
             for model_id in alt_models:
                 if self.provider == "groq" and self.model_name == model_id:
                     continue
@@ -785,7 +785,8 @@ Output: BNS housebreaking lurking house-trespass after sunset theft property""")
             if self.groq_key:
                 try:
                     from langchain_groq import ChatGroq
-                    groq_exp_llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=self.groq_key, temperature=0.0)
+                    groq_exp_model = os.environ.get("FALLBACK_MODEL", "groq/compound-mini")
+                    groq_exp_llm = ChatGroq(model=groq_exp_model, api_key=self.groq_key, temperature=0.0)
                     fb_chain = prompt | groq_exp_llm | StrOutputParser()
                     raw_output = fb_chain.invoke({"question": question}).strip()
                     return self._strip_section_numbers(raw_output)
