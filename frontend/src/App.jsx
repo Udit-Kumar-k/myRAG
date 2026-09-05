@@ -257,13 +257,20 @@ function App() {
         const serverConvs = data.conversations || [];
         if (serverConvs.length > 0) {
           sessionCounterRef.current = serverConvs.length;
-          setConversations(serverConvs);
-          const firstId = serverConvs[0].id;
-          setActiveConvId(firstId);
-          await loadHistoryFor(firstId, t);
+          // Merge: keep any locally-created sessions not yet persisted on the server
+          setConversations(prev => {
+            const serverIds = new Set(serverConvs.map(c => c.id));
+            const localOnly = prev.filter(c => !serverIds.has(c.id));
+            return [...localOnly, ...serverConvs];
+          });
+          setActiveConvId(prev => prev || serverConvs[0].id);
+          if (!activeConvId) {
+            await loadHistoryFor(serverConvs[0].id, t);
+          }
           return;
         }
       }
+
     } catch (e) {
       console.warn('Could not load conversations from server:', e);
     }
