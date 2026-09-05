@@ -32,6 +32,18 @@ app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
 
 if __name__ == "__main__":
     import uvicorn
+
+    # On Hugging Face ZeroGPU Spaces, startup_report must be explicitly sent to the
+    # supervisor daemon because we launch via uvicorn directly instead of demo.launch()
+    try:
+        from spaces import zero
+        if hasattr(zero, "startup"):
+            print("Triggering ZeroGPU startup report...")
+            zero.startup()
+            print("ZeroGPU startup report sent successfully.")
+    except Exception as e:
+        print(f"ZeroGPU startup report notice: {e}")
+
     # Hugging Face Spaces routes external traffic to port 7860.
     # On ZeroGPU Spaces, HF sets PORT=7861 for an internal worker/proxy which causes
     # an [Errno 98] address already in use error if uvicorn tries to bind to it.
