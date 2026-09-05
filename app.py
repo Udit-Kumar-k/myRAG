@@ -4,23 +4,26 @@ import gradio as gr
 try:
     import spaces
 
-    @spaces.GPU
-    def zero_gpu_keepalive(x: str = "") -> str:
+    @spaces.GPU(duration=60)
+    def zero_gpu_keepalive(text: str = "") -> str:
         """ZeroGPU function to satisfy HF ZeroGPU supervisor."""
-        return "ZeroGPU active"
-except (ImportError, AttributeError):
-    def zero_gpu_keepalive(x: str = "") -> str:
-        return "CPU active"
+        return f"ZeroGPU active: {text}"
+except Exception as e:
+    def zero_gpu_keepalive(text: str = "") -> str:
+        return f"CPU active: {text}"
 
 from src.backend.main import app as fastapi_app
 
-# Minimal Gradio interface — satisfies ZeroGPU runner and Gradio SDK requirements
-demo = gr.Interface(
-    fn=zero_gpu_keepalive,
-    inputs=gr.Textbox(label="Status Input", value="status"),
-    outputs=gr.Textbox(label="Status Output"),
-    title="NyayBot API"
-)
+# Minimal Gradio interface with queueing enabled for ZeroGPU compatibility
+with gr.Blocks() as demo:
+    gr.Markdown("## NyayBot Legal Assistant API")
+    inp = gr.Textbox(label="Status Input", value="ping")
+    out = gr.Textbox(label="Status Output")
+    btn = gr.Button("Check Status")
+    btn.click(fn=zero_gpu_keepalive, inputs=inp, outputs=out)
+
+# Crucial for ZeroGPU: enable queueing so ZeroGPU supervisor can hook in
+demo.queue()
 
 # Mount Gradio onto FastAPI — returns the combined ASGI app
 # FastAPI serves the React frontend at / and API at /query, /health etc.
